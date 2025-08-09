@@ -10,7 +10,7 @@ from ..config import SimConfig
 
 def cmd_compile(args):
     """Handles the 'compile' command."""
-    print(f"Compiling model: {args.model}")
+    print(f"Compiling model: {args.model} with mode: {args.mode}")
     model_ir = load_onnx_as_model_ir(args.model)
 
     # In the future, compiler passes could be configured via args
@@ -18,7 +18,7 @@ def cmd_compile(args):
     model_ir = apply_tiling_pass(model_ir)
     model_ir = apply_quant_pass(model_ir, mode=args.quant)
 
-    npu_prog = map_model_ir_to_npu_program(model_ir)
+    npu_prog = map_model_ir_to_npu_program(model_ir, mode=args.mode)
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     with open(args.output, "w") as f:
@@ -38,7 +38,7 @@ def cmd_run(args):
     # --- This part is a simplified pipeline for now ---
     # 1. Load and compile the model
     model_ir = load_onnx_as_model_ir(config.model)
-    npu_prog = map_model_ir_to_npu_program(model_ir)
+    npu_prog = map_model_ir_to_npu_program(model_ir, mode=config.mode)
 
     # 2. Run simulation
     # The simulator will now need the config to model behavior
@@ -71,6 +71,7 @@ def build_parser():
     pc.add_argument("model", help="Path to ONNX model")
     pc.add_argument("-o", "--output", default="out/graph.npu.json", help="Output path for NPU program")
     pc.add_argument("--quant", default="none", choices=["none", "int8", "vq"], help="Quantization mode")
+    pc.add_argument("--mode", default="loose", choices=["loose", "tight"], help="RISC-V to NPU coupling mode for compilation")
     pc.set_defaults(func=cmd_compile)
 
     # --- Run Command (based on PRD v1.1) ---
