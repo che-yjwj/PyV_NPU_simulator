@@ -1,0 +1,25 @@
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyv-npu"
+version = "0.1.0"
+description = "PyV-NPU: Research-grade NPU simulator (skeleton)"
+authors = [{name="Your Name", email="you@example.com"}]
+requires-python = ">=3.10"
+readme = "README.md"
+keywords = ["NPU", "simulator", "RISC-V", "ONNX", "compiler", "MLIR"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "networkx", "onnx"]
+viz = ["graphviz"]
+
+[project.scripts]
+pyv-npu = "pyv_npu.cli.main:main"
