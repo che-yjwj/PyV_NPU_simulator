@@ -16,7 +16,6 @@ def _onnx_dtype_to_numpy(onnx_dtype: int) -> np.dtype:
 def load_onnx_as_model_ir(path: str) -> Graph:
     """Loads an ONNX model into the Model IR, extracting tensor shapes and dtypes."""
     if onnx is None:
-        # Synthesize a graph with placeholder tensor info if onnx is not available
         nodes: List[Node] = [
             Node(name="matmul0", op_type="MatMul", inputs=["x","w0"], outputs=["y0"]),
             Node(name="gelu0", op_type="GELU", inputs=["y0"], outputs=["y1"]),

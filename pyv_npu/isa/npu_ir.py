@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Tuple
@@ -25,6 +24,9 @@ class NPUOp:
 @dataclass
 class Program:
     ops: List[NPUOp]
+    inputs: List[Tensor] = field(default_factory=list)
+    outputs: List[Tensor] = field(default_factory=list)
+    initializers: List[Tensor] = field(default_factory=list)
 
     def to_json(self) -> Dict[str, Any]:
         return {"ops": [

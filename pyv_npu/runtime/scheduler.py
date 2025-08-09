@@ -7,112 +7,168 @@ import heapq
 from ..config import SimConfig
 from ..isa.npu_ir import Program, NPUOp, Tensor
 
+
+
 @dataclass
 class ScheduleItem:
     op: NPUOp
     start_cycle: int
     end_cycle: int
     engine: str  # "TE", "VE", "DMA", "CPU"
+    ticket: int = -1
 
 # --- L2 Event-Driven Scheduler ---
 
 @dataclass(order=True)
 class Event:
     time: int
-    # Use a field for the item since NPUOp is not comparable
-    item: Any = field(compare=False)
+    # Event type, e.g., 'CPU_DISPATCH', 'NPU_OP_COMPLETE'
+    type: str = field(compare=False)
+    # Payload associated with the event
+    item: Any = field(compare=False, default=None)
 
 def event_driven_schedule(p: Program, config: SimConfig) -> List[ScheduleItem]:
-    """
-    An event-driven scheduler that models engine contention and data dependencies.
-    - Manages TE, VE, and DMA engines.
-    - Ops can only run when their dependencies are met and an engine is free.
-    - Time advances based on the next available event.
+    """A more accurate event-driven scheduler.
+    
+    The simulation proceeds by jumping from one event to the next.
+    This allows for proper modeling of parallel execution on multiple engines.
     """
     # 1. Initialization
+    time = 0
     schedule: List[ScheduleItem] = []
     event_queue: List[Event] = []
-    
-    # Engine availability (time when the engine becomes free)
+
+    # Engine availability is tracked by their next free time
     te_free_time = [0] * config.te
     ve_free_time = [0] * config.ve
     dma_free_time = [0] * config.dma_channels
+    cpu_free_time = [0] # Single CPU core
 
-    # Data availability (time when a tensor is ready)
+    # Resource and dependency tracking
     tensor_ready_time: Dict[str, int] = {}
+    # Initialize tensor_ready_time with graph inputs and initializers
+    for inp_tensor in p.inputs:
+        tensor_ready_time[inp_tensor.name] = 0
+    for init_tensor in p.initializers:
+        tensor_ready_time[init_tensor.name] = 0
 
-    # Op readiness (ops waiting for dependencies)
-    op_queue = p.ops.copy()
+    ticket_completed_time: Dict[int, int] = {}
     
+    # Queues for ops waiting to be processed or scheduled
+    # In tight mode, this is the stream of instructions from the CPU
+    # In loose mode, this queue is empty, and npu_op_queue is pre-populated
+    cpu_op_queue = p.ops.copy()
+    npu_op_queue: List[NPUOp] = []
+
+    if config.mode == 'loose':
+        npu_op_queue = cpu_op_queue
+        cpu_op_queue = []
+        # For loose mode, all ops can be scheduled immediately
+        for op in npu_op_queue:
+            heapq.heappush(event_queue, Event(time=0, type='NPU_OP_READY', item=op))
+    else: # tight mode
+        # Start with a single event to kick off the CPU dispatch
+        heapq.heappush(event_queue, Event(time=0, type='CPU_DISPATCH'))
+
     # 2. Main Simulation Loop
-    while op_queue or event_queue:
-        # Find the next op that can be scheduled
-        next_op_to_schedule = -1
-        best_start_time = float('inf')
+    while event_queue:
+        event = heapq.heappop(event_queue)
+        time = event.time
 
-        for i, op in enumerate(op_queue):
-            # Check data dependencies
-            dep_ready_time = 0
-            for inp in op.inputs:
-                dep_ready_time = max(dep_ready_time, tensor_ready_time.get(inp.name, 0))
+        # --- Event: CPU is ready to dispatch next instruction ---
+        if event.type == 'CPU_DISPATCH':
+            if not cpu_op_queue: continue
 
-            # Check engine availability and find the earliest start time
-            start_time = dep_ready_time
-            eng_type, eng_idx = get_engine_for_op(op)
+            op = cpu_op_queue[0]
+            is_ready = False
+            
+            # Check dependencies for the CPU instruction
+            if op.opcode == 'TWAIT':
+                ticket = op.args['inst'].ticket
+                if ticket in ticket_completed_time:
+                    is_ready = True
+            else: # ENQCMD_T and other future CPU ops are always ready
+                is_ready = True
 
-            if eng_type == "TE":
-                free_times = te_free_time
-            elif eng_type == "VE":
-                free_times = ve_free_time
-            else: # DMA/CPU for now
-                free_times = dma_free_time
+            if is_ready:
+                cpu_op_queue.pop(0)
+                start_time = max(time, cpu_free_time[0])
+                duration = estimate_op_duration(op, config)
+                end_time = start_time + duration
+                cpu_free_time[0] = end_time
+                schedule.append(ScheduleItem(op, start_time, end_time, "CPU0"))
 
-            # Find the earliest available engine of the required type
-            earliest_engine_free_time = min(free_times)
-            start_time = max(start_time, earliest_engine_free_time)
+                if op.opcode == 'ENQCMD_T':
+                    inst = op.args['inst']
+                    # Add the NPU op to the queue of ops waiting for an engine
+                    npu_op_queue.append(inst.npu_op_desc)
+                    # Tag the op with its ticket
+                    inst.npu_op_desc.args['ticket'] = inst.ticket
+                    # Trigger an event to check NPU scheduling
+                    heapq.heappush(event_queue, Event(time=end_time, type='CHECK_NPU_SCHED'))
+                
+                # Schedule the next CPU dispatch event
+                heapq.heappush(event_queue, Event(time=end_time, type='CPU_DISPATCH'))
 
-            if start_time < best_start_time:
-                best_start_time = start_time
-                next_op_to_schedule = i
+        # --- Event: An NPU op has finished ---
+        elif event.type == 'NPU_OP_COMPLETE':
+            op, engine_type, engine_idx = event.item
+            # Update tensor and ticket readiness
+            for out in op.outputs:
+                tensor_ready_time[out.name] = time
+            ticket = op.args.get('ticket', -1)
+            if ticket != -1:
+                ticket_completed_time[ticket] = time
+                # If a TWAIT was waiting, the CPU might be unblocked
+                heapq.heappush(event_queue, Event(time=time, type='CPU_DISPATCH'))
+            
+            # Trigger a check for more NPU work
+            heapq.heappush(event_queue, Event(time=time, type='CHECK_NPU_SCHED'))
 
-        # If no op is ready, advance time based on the event queue
-        if next_op_to_schedule == -1:
-            if not event_queue: break # Should not happen if op_queue is not empty
-            event = heapq.heappop(event_queue)
-            # An engine has become free, re-evaluate op readiness in the next loop
-            continue
+        # --- Event: Check if any queued NPU ops can be scheduled ---
+        elif event.type in ('CHECK_NPU_SCHED', 'NPU_OP_READY'):
+            # Iterate over a copy as we may modify the queue
+            for op in list(npu_op_queue):
+                # Check data dependencies
+                dep_ready = all(t.name in tensor_ready_time for t in op.inputs)
+                if not dep_ready: continue
+                
+                dep_time = 0
+                for t in op.inputs:
+                    dep_time = max(dep_time, tensor_ready_time.get(t.name, 0))
 
-        # 3. Schedule the selected op
-        op = op_queue.pop(next_op_to_schedule)
-        start_time = best_start_time
-        
-        eng_type, eng_idx = get_engine_for_op(op)
-        duration = estimate_op_duration(op, config)
-        end_time = start_time + duration
+                # Check engine availability
+                eng_type, _ = get_engine_for_op(op)
+                if eng_type == "TE": engine_pool = te_free_time
+                elif eng_type == "VE": engine_pool = ve_free_time
+                else: engine_pool = dma_free_time
 
-        # Find the specific engine to use
-        if eng_type == "TE":
-            engine_pool = te_free_time
-        elif eng_type == "VE":
-            engine_pool = ve_free_time
-        else: # DMA/CPU
-            engine_pool = dma_free_time
-        
-        # Find first available engine and assign the op to it
-        for i in range(len(engine_pool)):
-            if engine_pool[i] <= start_time:
-                engine_pool[i] = end_time
-                eng_idx = i
-                break
-        
-        full_eng_name = f"{eng_type}{eng_idx}"
-        schedule.append(ScheduleItem(op, start_time, end_time, full_eng_name))
-
-        # Update tensor readiness and add an event for when the op completes
-        for out in op.outputs:
-            tensor_ready_time[out.name] = end_time
-        
-        heapq.heappush(event_queue, Event(time=end_time, item=op.name))
+                # Find the best engine to schedule this op on
+                best_engine_idx = -1
+                earliest_start_time = float('inf')
+                
+                for i, free_time in enumerate(engine_pool):
+                    current_engine_start_time = max(time, dep_time, free_time)
+                    if current_engine_start_time < earliest_start_time:
+                        earliest_start_time = current_engine_start_time
+                        best_engine_idx = i
+                
+                if best_engine_idx != -1: # If a suitable engine was found
+                    # Found a free slot, schedule the op
+                    npu_op_queue.remove(op)
+                    duration = estimate_op_duration(op, config)
+                    end_time = earliest_start_time + duration
+                    engine_pool[best_engine_idx] = end_time
+                    
+                    ticket = op.args.get('ticket', -1)
+                    schedule.append(ScheduleItem(op, earliest_start_time, end_time, f"{eng_type}{best_engine_idx}", ticket))
+                    
+                    # Schedule the completion event for this op
+                    item = (op, eng_type, best_engine_idx)
+                    heapq.heappush(event_queue, Event(time=end_time, type='NPU_OP_COMPLETE', item=item))
+                    # After scheduling, re-check if more NPU ops can be scheduled
+                    heapq.heappush(event_queue, Event(time=end_time, type='CHECK_NPU_SCHED'))
+                    break # Break from inner loop to re-evaluate the npu_op_queue after a schedule
 
     return schedule
 
@@ -122,6 +178,8 @@ def get_engine_for_op(op: NPUOp) -> Tuple[str, int]:
         return "TE", 0
     elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
         return "VE", 0
+    elif op.opcode in ("ENQCMD_T", "TWAIT", "TBAR", "TSTAT"):
+        return "CPU", 0
     else: # Data movement or other ops
         return "DMA", 0
 
@@ -148,6 +206,8 @@ def estimate_op_duration(op: NPUOp, config: SimConfig) -> int:
         # Simplified throughput: elements per cycle
         cycles = num_elements // 16 
         return cycles if cycles > 0 else 20 # return 20 cycles minimum
+    elif op.opcode in ("ENQCMD_T", "TWAIT", "TBAR", "TSTAT"):
+        return 1 # Assume CPU custom instructions take 1 cycle
     else:
         # For DMA ops, duration depends on data size and bandwidth
         # Placeholder:
