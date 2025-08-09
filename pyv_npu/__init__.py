@@ -1,3 +1,3 @@
 
-__all__ = ["config"]
-from .config import SimulatorConfig
+__all__ = ["SimConfig"]
+from .config import SimConfig
