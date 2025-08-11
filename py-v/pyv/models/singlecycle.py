@@ -26,7 +26,7 @@ class SingleCycle(Module):
         """RISC-V CSRs"""
 
         # NPU and Scheduler setup
-        self.npu_config = SimConfig(mode='loose')
+        self.npu_config = SimConfig(model="dummy_model", mode='loose')
         # Scheduler needs a memory reference, which is created below
         self.npu_scheduler = Scheduler(config=self.npu_config, memory=None)
         
