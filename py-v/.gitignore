@@ -1,0 +1,14 @@
+__pycache__
+*.bin
+*.out
+*.dmp
+*.log
+venv
+.venv
+*.prof
+.coverage
+gitlint.test
+*.diff
+launch.json
+*.html
+*.js

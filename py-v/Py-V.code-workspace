@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"python.autoComplete.extraPaths": [
+			"${workspaceFolder}/pyv"
+		],
+		"terminal.integrated.env.linux": {
+			"PYTHONPATH":  "${workspaceFolder}/pyv"
+		},
+		"python.testing.pytestEnabled": true,
+		"python.analysis.extraPaths": [
+			"${workspaceFolder}/pyv"
+		]
+	}
+}
