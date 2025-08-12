@@ -19,7 +19,7 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = ["pytest", "networkx", "onnx"]
-viz = ["graphviz"]
+viz = ["graphviz", "plotly"]
 
 [project.scripts]
 pyv-npu = "pyv_npu.cli.main:main"

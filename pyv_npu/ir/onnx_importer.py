@@ -68,7 +68,8 @@ def load_onnx_as_model_ir(path: str) -> Graph:
             attrs={a.name: onnx.helper.get_attribute_value(a) for a in n.attribute}
         ))
         
-    inputs = [i.name for i in g.input]
+    initializer_names = {t.name for t in g.initializer}
+    inputs = [i.name for i in g.input if i.name not in initializer_names]
     outputs = [o.name for o in g.output]
     
-    return Graph(nodes=nodes, inputs=inputs, outputs=outputs, tensors=tensors)
+    return Graph(nodes=nodes, inputs=inputs, outputs=outputs, tensors=tensors, initializers=list(initializer_names))

@@ -55,5 +55,38 @@ def test_smoke(monkeypatch, mock_onnx_model):
     config = SimConfig(model=onnx_model_path)
 
     rep = run(p, config)
+
     assert rep.total_cycles > 0
-    assert set(rep.engine_util.keys()) == {"TE", "VE", "CPU"}
+    assert set(rep.engine_utilization.keys()) == {"TE", "VE", "CPU"}
+
+def test_l2_simulator_smoke(monkeypatch, mock_onnx_model):
+    # Mock onnx.load to return our fake model
+    monkeypatch.setattr(onnx, "load", lambda path: mock_onnx_model)
+
+    onnx_model_path = "examples/tinyllama.onnx"
+    g = load_onnx_as_model_ir(onnx_model_path)
+    p = map_model_ir_to_npu_program(g)
+    
+    # Create a SimConfig for L2 simulation
+    config = SimConfig(model=onnx_model_path, level='L2')
+
+    rep = run(p, config)
+    assert rep.total_cycles > 0
+    assert any(k.startswith("TE") for k in rep.engine_utilization.keys())
+    assert any(k.startswith("VE") for k in rep.engine_utilization.keys())
+
+def test_tight_mode_l2_simulator_smoke(monkeypatch, mock_onnx_model):
+    # Mock onnx.load to return our fake model
+    monkeypatch.setattr(onnx, "load", lambda path: mock_onnx_model)
+
+    onnx_model_path = "examples/tinyllama.onnx"
+    g = load_onnx_as_model_ir(onnx_model_path)
+    p = map_model_ir_to_npu_program(g, mode='tight')
+    
+    # Create a SimConfig for L2 simulation in tight mode
+    config = SimConfig(model=onnx_model_path, level='L2', mode='tight')
+
+    rep = run(p, config)
+    assert rep.total_cycles > 0
+    assert any(k.startswith("TE") for k in rep.engine_utilization.keys())
+    assert any(k.startswith("VE") for k in rep.engine_utilization.keys())

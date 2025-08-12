@@ -9,7 +9,7 @@ from .scheduler import simple_greedy_schedule, event_driven_schedule
 @dataclass
 class SimulationReport:
     total_cycles: int
-    engine_util: Dict[str, int]
+    engine_utilization: Dict[str, float] # Utilization percentage
     timeline: List[Dict[str, Any]]
 
 def run(program: Program, config: SimConfig) -> SimulationReport:
@@ -23,29 +23,37 @@ def run(program: Program, config: SimConfig) -> SimulationReport:
 
     # --- Scheduler Selection --- 
     if config.level in ("L2", "L3"):
-      sched = event_driven_schedule(program, config)
+      schedule = event_driven_schedule(program, config)
     else:
-      sched = simple_greedy_schedule(program)
+      schedule = simple_greedy_schedule(program)
 
-    # --- Timing & Resource Calculation ---
-    # In a real L2/L3 simulation, timing would be calculated here using
-    # detailed models and parameters from `config` (e.g., clock_ghz, bw_dram_gbps).
-    # For now, we use the pre-calculated cycles from the simple scheduler.
-    total = max((it.end_cycle for it in sched), default=0)
+    # --- Report Generation ---
+    total_cycles = max((it.end_cycle for it in schedule), default=0)
 
-    util = {}  # In future, engine names could come from config
+    engine_active_cycles: Dict[str, int] = {}
     timeline: List[Dict[str, Any]] = []
-    for it in sched:
-        if it.engine not in util:
-            util[it.engine] = 0
-        util[it.engine] += it.end_cycle - it.start_cycle
+
+    for item in schedule:
+        if item.engine not in engine_active_cycles:
+            engine_active_cycles[item.engine] = 0
+        duration = item.end_cycle - item.start_cycle
+        engine_active_cycles[item.engine] += duration
+        
         timeline.append({
-            "op": it.op.opcode,
-            "name": it.op.args.get("name"),
-            "engine": it.engine,
-            "start": it.start_cycle,
-            "end": it.end_cycle,
+            "op": item.op.opcode,
+            "name": item.op.name,
+            "engine": item.engine,
+            "start": item.start_cycle,
+            "end": item.end_cycle,
         })
 
-    # The report could also be made more detailed based on config
-    return SimulationReport(total_cycles=total, engine_util=util, timeline=timeline)
+    utilization: Dict[str, float] = {}
+    if total_cycles > 0:
+        for engine, active_cycles in engine_active_cycles.items():
+            utilization[engine] = round((active_cycles / total_cycles) * 100, 2)
+
+    return SimulationReport(
+        total_cycles=total_cycles, 
+        engine_utilization=utilization, 
+        timeline=timeline
+    )

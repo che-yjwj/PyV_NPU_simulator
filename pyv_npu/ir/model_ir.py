@@ -26,6 +26,7 @@ class Graph:
     inputs: List[str]
     outputs: List[str]
     tensors: Dict[str, Tensor] = field(default_factory=dict)
+    initializers: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

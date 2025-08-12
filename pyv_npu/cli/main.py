@@ -7,6 +7,7 @@ from ..compiler.passes.quantization import apply_quant_pass
 from ..compiler.mapper import map_model_ir_to_npu_program
 from ..runtime.simulator import run as run_sim
 from ..config import SimConfig
+from ..utils.viz import export_gantt, export_gantt_ascii
 
 def cmd_compile(args):
     """Handles the 'compile' command."""
@@ -51,11 +52,19 @@ def cmd_run(args):
         # A more sophisticated report would be generated here
         json.dump({
             "total_cycles": report.total_cycles,
-            "engine_util": report.engine_util,
+            "engine_utilization": report.engine_utilization,
             "timeline": report.timeline,
         }, f, indent=2)
 
     print(f"[OK] Simulation finished. Report saved to {report_path}")
+
+    # 4. Generate Gantt chart if requested
+    if args.gantt:
+        export_gantt(report.timeline, args.gantt)
+
+    # 5. Print ASCII Gantt chart if requested
+    if args.ascii_gantt:
+        print(export_gantt_ascii(report.timeline))
 
 def build_parser():
     p = argparse.ArgumentParser(
@@ -82,6 +91,8 @@ def build_parser():
     pr.add_argument("model", help="Path to ONNX model")
     pr.add_argument("--level", default="L1", choices=["L0", "L1", "L2", "L3"], help="Simulation fidelity level")
     pr.add_argument("--report", default="out/default_run", help="Directory to save simulation reports")
+    pr.add_argument("--gantt", type=str, default=None, help="Path to save Gantt chart HTML file")
+    pr.add_argument("--ascii-gantt", action="store_true", help="Print an ASCII Gantt chart to the console")
 
     # Mode selection
     pr.add_argument("--mode", default="loose", choices=["loose", "tight"], help="RISC-V to NPU coupling mode")
