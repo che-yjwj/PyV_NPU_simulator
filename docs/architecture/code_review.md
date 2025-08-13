@@ -140,10 +140,16 @@ cli.main:main()
 
 ## 보완 포인트
 1. TE/VE 코스트 모델 정교화
+  * TE: 타일‑사이즈, systolic fill/drain, K‑blocking, SRAM tile‑reuse 반영
+  * VE: 벡터 길이/RVV 유사 제약, 파이프라인/발사율(issue rate) 모델
 2. 메모리/버스 모델 업그레이드
+  * SPM bank/port 수, DMA burst, NoC 홉 딜레이, DRAM 채널/페이지 정책
 3. 컴파일러 패스 연결
+  * 타일링 결정, 연산 fusion, QAT/INT8·VQ 매핑, 활성/가중치 layout 변환
 4. 의존성/큐/레지스터 모델
+  * tight 모드에서 레지스터‑마이크로코드 큐/doorbell/CSR latency 반영
 5. PPA 훅
+  * op별 energy 모델 핸들러 인터페이스 마련 → 보고서에 nJ/op, Watt 추정 추가
 
 ---
 

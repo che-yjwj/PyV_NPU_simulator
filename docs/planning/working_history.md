@@ -1,4 +1,20 @@
- V250813e: 'tight' 모드 시뮬레이션 및 리포트 기능 강화
+ V250814b: 스케줄러 Stall 로직 수정 및 테스트 안정화
+  ✦ 완료된 작업:
+
+   1. Stall 원인 분석 및 로직 수정:
+       * `tests/test_scheduler.py`의 실패 케이스 분석 결과, `runtime/scheduler.py`의 `event_driven_schedule` 함수가 자원 경합 시 `stall_cycles`를 잘못 계산하는 버그를 발견했습니다.
+       * `runtime/resources.py`의 `BankTracker`가 동시 다중 bank 점유 요청을 올바르게 처리하도록 수정하여, Stall 계산 정확도를 높였습니다.
+
+   2. 검증 테스트 케이스 추가:
+       * 수정된 Stall 로직을 검증하기 위해, `tests/test_scheduler.py`에 다중 bank 동시 접근으로 의도적인 경합을 일으키는 테스트 케이스를 추가하고 통과를 확인했습니다.
+
+  ✦ 남은 작업:
+
+   * 회귀 테스트 실행: Stall 로직 수정이 다른 기능('tight' 모드 등)에 영향을 주지 않았는지 전체 테스트 스위트를 실행하여 검증해야 합니다.
+   * M4: Py-V 연동 준비: 현 단계 안정화 이후, M4 마일스톤인 Py-V 시뮬레이터 연동 설계 작업을 본격적으로 시작할 예정입니다.
+   * 칸반 보드 업데이트: `docs/kanban_board.md`의 관련 태스크를 최신 상태로 업데이트해야 합니다.
+
+V250813e: 'tight' 모드 시뮬레이션 및 리포트 기능 강화
   ✦ 완료된 작업:
 
    1. 'tight' 모드 구현 (M3 마일스톤 일부):
