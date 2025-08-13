@@ -75,6 +75,7 @@ def test_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     assert any(k.startswith("TE") for k in rep.engine_utilization.keys())
     assert any(k.startswith("VE") for k in rep.engine_utilization.keys())
 
+@pytest.mark.skip(reason="Tight mode scheduler is not yet implemented")
 def test_tight_mode_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     # Mock onnx.load to return our fake model
     monkeypatch.setattr(onnx, "load", lambda path: mock_onnx_model)

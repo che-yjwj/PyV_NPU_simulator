@@ -87,24 +87,27 @@ def build_parser():
     pr = sub.add_parser("run", help="Compile and run simulation",
                         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    # Core args
-    pr.add_argument("model", help="Path to ONNX model")
-    pr.add_argument("--level", default="L1", choices=["L0", "L1", "L2", "L3"], help="Simulation fidelity level")
-    pr.add_argument("--report", default="out/default_run", help="Directory to save simulation reports")
+    # Config file
+    pr.add_argument("-c", "--config", type=str, default=None, help="Path to YAML config file to override defaults")
+
+    # Core args (set default=None to allow override from YAML)
+    pr.add_argument("model", nargs='?', default=None, help="Path to ONNX model (optional if specified in config)")
+    pr.add_argument("--level", type=str, default=None, choices=["L0", "L1", "L2", "L3"], help="Simulation fidelity level")
+    pr.add_argument("--report", type=str, default=None, help="Directory to save simulation reports")
     pr.add_argument("--gantt", type=str, default=None, help="Path to save Gantt chart HTML file")
     pr.add_argument("--ascii-gantt", action="store_true", help="Print an ASCII Gantt chart to the console")
 
     # Mode selection
-    pr.add_argument("--mode", default="loose", choices=["loose", "tight"], help="RISC-V to NPU coupling mode")
+    pr.add_argument("--mode", type=str, default=None, choices=["loose", "tight"], help="RISC-V to NPU coupling mode")
 
     # Loose mode args
     loose_group = pr.add_argument_group('Loose-coupled Mode Arguments')
-    loose_group.add_argument("--mmio-base", type=int, default=0x40000000, help="MMIO base address for NPU control")
-    loose_group.add_argument("--queue-size", type=int, default=1024, help="Size of the command queue")
+    loose_group.add_argument("--mmio-base", type=int, default=None, help="MMIO base address for NPU control")
+    loose_group.add_argument("--queue-size", type=int, default=None, help="Size of the command queue")
 
     # Tight mode args
     tight_group = pr.add_argument_group('Tight-coupled Mode Arguments')
-    tight_group.add_argument("--isa", default="enqcmd,twait,tbar,tstat", help="Comma-separated list of enabled TE custom instructions")
+    tight_group.add_argument("--isa", type=str, default=None, help="Comma-separated list of enabled TE custom instructions")
 
     pr.set_defaults(func=cmd_run)
 
