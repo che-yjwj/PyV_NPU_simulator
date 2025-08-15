@@ -33,6 +33,8 @@ class SimConfig:
     ve: int = 4
     spm_banks: int = 8
     spm_capacity_kib: int = 2048  # 2 MiB
+    systolic_array_height: int = 16
+    systolic_array_width: int = 16
     dma_channels: int = 2
     bw_dram_gbps: float = 102.4
     bw_noc_gbps: float = 256.0

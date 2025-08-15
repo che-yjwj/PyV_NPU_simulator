@@ -5,6 +5,7 @@ import heapq
 from ..config import SimConfig
 from ..isa.npu_ir import Program, NPUOp, Tensor
 from .resources import BandwidthTracker, BankTracker
+from .te import calculate_systolic_array_cycles
 
 @dataclass
 class ScheduleItem:
@@ -14,6 +15,7 @@ class ScheduleItem:
     engine: str
     stall_cycles: int = 0
     stall_reason: str = "NONE"
+    cycle_breakdown: Dict[str, int] = field(default_factory=dict)
 
 @dataclass(order=True)
 class Event:
@@ -78,7 +80,6 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
     is_tight = False
     if config.mode == 'tight':
         is_tight = True
-        # ... (tight mode logic) ...
         q_to_process = npu_op_queue
     else: # loose mode
         q_to_process = cpu_op_queue
@@ -103,9 +104,8 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
         engine_free_time = min(engine_pool)
         
         tentative_start_time = max(ideal_start_time, engine_free_time)
-        actual_start, actual_end, resource_reason = calculate_op_timing(op, tentative_start_time, config, resource_trackers)
+        actual_start, actual_end, resource_reason, breakdown = calculate_op_timing(op, tentative_start_time, config, resource_trackers)
         
-        # Determine stall reason with priority
         first_pending_time = op_pending_time.get(op.name, time)
         stall_reason = "NONE"
         if actual_start > ideal_start_time:
@@ -122,7 +122,8 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
             op_details = {
                 'start': actual_start, 'end': actual_end, 'engine': engine_type,
                 'stall_cycles': actual_start - first_pending_time,
-                'stall_reason': stall_reason
+                'stall_reason': stall_reason,
+                'cycle_breakdown': breakdown
             }
 
     if best_op_item:
@@ -139,7 +140,8 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
             end_cycle=op_details['end'], 
             engine=f"{op_details['engine']}{engine_idx}",
             stall_cycles=op_details['stall_cycles'],
-            stall_reason=op_details['stall_reason']
+            stall_reason=op_details['stall_reason'],
+            cycle_breakdown=op_details['cycle_breakdown']
         ))
 
         q_to_process.remove(best_op_item)
@@ -147,10 +149,11 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
         heapq.heappush(event_queue, Event(time=op_details['end'], type='OP_COMPLETE', item=(op, op_details['end'], ticket)))
         heapq.heappush(event_queue, Event(time, 'CHECK_SCHED'))
 
-def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any]) -> Tuple[int, int, str]:
+def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any]) -> Tuple[int, int, str, Dict[str, int]]:
     dram: BandwidthTracker = resources['dram']
     spm: BankTracker = resources['spm_banks']
     stall_reason = "NONE"
+    breakdown = {}
     
     if op.opcode in ('LOAD', 'STORE'):
         num_bytes = op.args.get('num_bytes', 0)
@@ -158,7 +161,7 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         actual_start = start_cycle 
         if dram_end_cycle > start_cycle + 1:
              stall_reason = "RESOURCE_DRAM"
-        return actual_start, dram_end_cycle, stall_reason
+        return actual_start, dram_end_cycle, stall_reason, breakdown
     elif op.opcode in ("MatMul", "Conv"):
         m, n, k = op.args.get('tile_m', 128), op.args.get('tile_n', 128), op.args.get('tile_k', 128)
         bytes_in_a = (m * k * 2); bytes_in_b = (k * n * 2)
@@ -167,8 +170,14 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         inputs_ready_cycle = max(load_a_end, load_b_end)
         if inputs_ready_cycle > start_cycle:
             stall_reason = "RESOURCE_DRAM"
-        total_macs = m * n * k
-        compute_cycles = max(10, total_macs // (config.te * 1))
+        
+        breakdown = calculate_systolic_array_cycles(
+            tile_m=m, tile_n=n, tile_k=k, 
+            array_height=config.systolic_array_height, 
+            array_width=config.systolic_array_width
+        )
+        compute_cycles = breakdown['total']
+
         num_banks_needed = config.spm_banks // 2
         compute_start_cycle = spm.find_earliest_free_slot(inputs_ready_cycle, compute_cycles, num_banks_needed)
         if compute_start_cycle > inputs_ready_cycle:
@@ -176,7 +185,7 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         compute_end_cycle = compute_start_cycle + compute_cycles
         bytes_out_c = (m * n * 2)
         store_end_cycle = dram.book_transfer(compute_end_cycle, bytes_out_c)
-        return compute_start_cycle, store_end_cycle, stall_reason
+        return compute_start_cycle, store_end_cycle, stall_reason, breakdown
     elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
         num_elements = op.args.get('num_elements', 2048)
         compute_cycles = max(5, num_elements // 16)
@@ -185,9 +194,10 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         compute_end_cycle = compute_start_cycle + compute_cycles
         if compute_start_cycle > start_cycle:
             stall_reason = "RESOURCE_SPM"
-        return compute_start_cycle, compute_end_cycle, stall_reason
+        breakdown = {'total': compute_cycles, 'compute': compute_cycles}
+        return compute_start_cycle, compute_end_cycle, stall_reason, breakdown
     else:
-        return start_cycle, start_cycle + 1, "NONE"
+        return start_cycle, start_cycle + 1, "NONE", breakdown
 
 def get_engine_for_op(op: NPUOp) -> str:
     if op.opcode in ("MatMul", "Conv"):
