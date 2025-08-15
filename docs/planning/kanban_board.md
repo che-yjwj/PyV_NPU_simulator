@@ -90,13 +90,8 @@ v250813b
 
 ## In-Progress
 
-### S-02 | 스케줄러 Stall 계산 로직 검토
-- **요약**: `test_scheduler_stall_reason_dep` 테스트가 실패하는 원인(stall_cycles가 0으로 계산됨)을 분석하고 스케줄러 타이밍 계산 로직을 수정합니다.
-- **수용기준**: 비활성화된 `test_scheduler_stall_reason_dep` 테스트 통과.
-- **우선순위**: P0 / **사이즈**: S / **의존성**: — / **태그**: 스케줄러, 버그
-
 ### CI-01 | 테스트 스위트 확장
-- **진행**: `config`, `reporting` 모듈에 대한 단위 테스트 추가 완료. 스케줄러의 stall 계산 로직 테스트(`test_scheduler_stall_reason_dep`)는 실패하여 임시 비활성화됨. (**→ S-02에서 처리 중**)
+- **진행**: `config`, `reporting` 모듈에 대한 단위 테스트 추가 완료. 스케줄러의 stall 계산 로직이 안정화되었습니다.
 - **차주 목표**: 커버리지 70% 달성, 스케줄러 테스트 케이스 보강.
 
 ---
@@ -108,6 +103,10 @@ v250813b
 ---
 
 ## Done
+
+### S-02 | 스케줄러 Stall 계산 로직 수정
+- **내용**: 자원 경합 시 Stall 계산이 부정확하던 버그를 수정하고, 다중 bank 동시 접근 테스트 케이스를 추가하여 안정성을 확보함.
+- **출력물**: `pyv_npu/runtime/scheduler.py`, `pyv_npu/runtime/resources.py`, `tests/test_scheduler.py`
 
 ### CFG-01 | YAML 하드웨어 설정 외부화
 - **내용**: `--config` 인자로 YAML 설정 파일을 로드하고, CLI 인자로 덮어쓰는 기능 구현. 관련 단위 테스트 통과.
