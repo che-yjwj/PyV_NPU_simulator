@@ -124,9 +124,8 @@ def create_matplotlib_gantt(timeline_df, total_cycles):
     fig, ax = plt.subplots(figsize=(20, 10))
 
     unique_engines = sorted(timeline_df["engine"].unique())
-    colors = plt.cm.get_cmap("viridis", len(unique_engines))
     color_map = {engine: colors(i) for i, engine in enumerate(unique_engines)}
-    stall_color = 'rgba(255, 0, 0, 0.5)'
+    stall_color = (1.0, 0.0, 0.0, 0.5)
 
     for i, engine in enumerate(unique_engines):
         engine_events = timeline_df[timeline_df["engine"] == engine]

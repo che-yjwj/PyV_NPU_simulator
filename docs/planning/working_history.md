@@ -1,4 +1,21 @@
- V250814b: 스케줄러 Stall 로직 수정 및 테스트 안정화
+V250815a
+리소스/성능 모델 개선 제안 (단기)
+
+1. BandwidthTracker 병렬화 옵션
+  * 현재는 전송 직렬화. num_channels/inflight_limit 추가해 (채널별 타임라인)로 overlap 모델 지원.
+  * DRAM/NoC 각각에 독립 채널 모델 → get_transfer_cycles() 동일, book_transfer()에서 가장 빠르게 끝나는 채널 선택.
+
+2. BankTracker 가속
+  * 현재 1-cycle씩 증가하며 슬롯 탐색.
+  * 개선: 각 뱅크에 대해 “다음 빈틈 시각”을 min-heap으로 유지 → 점프 스케줄링.
+3. stall 분해 통계
+  * stall_reason 단일 문자열 대신, stall = {'dep':x, 'dram':y, 'noc':z, 'engine':w, ...} 누적.
+  * 리포트/시각화에서 빨강 해치는 dep, 주황은 dram 등으로 분해 표시.
+4. L3로 확장 시
+  * 엔진별 파이프라인 단계(Load/Compute/Store) 분리, 같은 엔진 내 오버랩 허용.
+  * DMA와 TE/VE 사이의 더블버퍼링(ping-pong) 모델 추가.
+
+V250814b: 스케줄러 Stall 로직 수정 및 테스트 안정화
   ✦ 완료된 작업:
 
    1. Stall 원인 분석 및 로직 수정:

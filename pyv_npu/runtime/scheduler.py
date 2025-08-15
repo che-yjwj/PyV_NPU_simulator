@@ -36,6 +36,7 @@ def event_driven_schedule(p: Program, config: SimConfig) -> List[ScheduleItem]:
     tensor_ready_time: Dict[str, int] = {t.name: 0 for t in p.inputs}
     tensor_ready_time.update({t.name: 0 for t in p.initializers})
     completed_tickets: Set[int] = set()
+    op_pending_time: Dict[str, int] = {}
 
     cpu_op_queue = p.ops.copy()
     npu_op_queue: List[Tuple[NPUOp, int]] = []
@@ -65,13 +66,14 @@ def event_driven_schedule(p: Program, config: SimConfig) -> List[ScheduleItem]:
                 tensor_ready_time=tensor_ready_time,
                 completed_tickets=completed_tickets,
                 engine_pools={'TE': te_free_time, 'VE': ve_free_time, 'DMA': dma_free_time},
-                resource_trackers={'dram': dram, 'spm_banks': spm_banks}
+                resource_trackers={'dram': dram, 'spm_banks': spm_banks},
+                op_pending_time=op_pending_time
             )
 
     schedule.sort(key=lambda x: x.start_cycle)
     return schedule
 
-def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, engine_pools, resource_trackers):
+def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers):
     q_to_process = None
     is_tight = False
     if config.mode == 'tight':
@@ -89,6 +91,8 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
         op = op_item[0] if is_tight else op_item
 
         if not all(t.name in tensor_ready_time for t in op.inputs):
+            if op.name not in op_pending_time:
+                op_pending_time[op.name] = time
             continue
 
         ideal_start_time = max((tensor_ready_time.get(t.name, 0) for t in op.inputs), default=time)
@@ -98,24 +102,27 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
 
         engine_free_time = min(engine_pool)
         
-        reason = "DEP"
-        tentative_start_time = ideal_start_time
-        if engine_free_time > ideal_start_time:
-            reason = "RESOURCE_ENGINE"
-            tentative_start_time = engine_free_time
-
+        tentative_start_time = max(ideal_start_time, engine_free_time)
         actual_start, actual_end, resource_reason = calculate_op_timing(op, tentative_start_time, config, resource_trackers)
         
-        if resource_reason != "NONE":
-            reason = resource_reason
-
+        # Determine stall reason with priority
+        first_pending_time = op_pending_time.get(op.name, time)
+        stall_reason = "NONE"
+        if actual_start > ideal_start_time:
+            if engine_free_time > ideal_start_time:
+                stall_reason = "RESOURCE_ENGINE"
+            else:
+                stall_reason = resource_reason
+        elif ideal_start_time > first_pending_time:
+            stall_reason = "DEP"
+        
         if actual_start < earliest_start_time:
             earliest_start_time = actual_start
             best_op_item = op_item
             op_details = {
                 'start': actual_start, 'end': actual_end, 'engine': engine_type,
-                'stall_cycles': actual_start - ideal_start_time,
-                'stall_reason': reason if (actual_start > ideal_start_time) else "NONE"
+                'stall_cycles': actual_start - first_pending_time,
+                'stall_reason': stall_reason
             }
 
     if best_op_item:
