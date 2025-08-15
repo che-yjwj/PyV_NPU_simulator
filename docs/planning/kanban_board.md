@@ -7,11 +7,6 @@ v250813b
 
 ## Backlog
 
-### C-01 | TE 코스트 모델 v1
-- **요약**: systolic fill/drain, K-blocking, tile reuse 반영한 TE latency/throughput 모델 1차 구현
-- **수용기준**: (1) matmul(M,N,K)와 어레이 크기(R×C) 입력 시 사이클 계산 일치(단위테스트 5개), (2) fill/drain 오버헤드 별도 리포팅
-- **우선순위**: P0 / **사이즈**: L / **의존성**: — / **태그**: TE, 성능모델
-
 ### M-01 | 메모리/버스 모델 고도화 v1
 - **요약**: SPM bank 포트 수, DMA burst, DRAM 채널/페이지 정책(오픈/클로즈드) 파라미터화
 - **수용기준**: bank 충돌 케이스 재현 테스트 3종, burst size 변화에 따른 P95 변동 리포트
@@ -103,6 +98,10 @@ v250813b
 ---
 
 ## Done
+
+### C-01 | TE 코스트 모델 v1
+- **내용**: 시스톨릭 어레이의 fill/drain 오버헤드를 반영한 TE 성능 모델 v1을 구현하고, 관련 단위 테스트 및 리포팅 연동을 완료함.
+- **출력물**: `pyv_npu/config.py`, `pyv_npu/runtime/te.py`, `pyv_npu/runtime/scheduler.py`, `tests/runtime/test_te.py`, `pyv_npu/utils/reporting.py`
 
 ### S-02 | 스케줄러 Stall 계산 로직 수정
 - **내용**: 자원 경합 시 Stall 계산이 부정확하던 버그를 수정하고, 다중 bank 동시 접근 테스트 케이스를 추가하여 안정성을 확보함.
