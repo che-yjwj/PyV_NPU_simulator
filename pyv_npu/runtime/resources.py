@@ -100,3 +100,17 @@ class DramBankTracker:
         if channel_id < 0:
             return # Address was None, nothing to commit
         self.bank_free_time[channel_id][bank_id] = start_cycle + duration
+
+class IssueQueueTracker:
+    """Models the NPU's internal command issue queue."""
+    def __init__(self, config: SimConfig):
+        self.issue_rate = config.tight_mode_issue_rate
+        self.next_issue_cycle = 0
+
+    def probe_issue_time(self, start_cycle: int) -> int:
+        """Calculates when the next command can be issued."""
+        return max(start_cycle, self.next_issue_cycle)
+
+    def commit_issue(self, issue_cycle: int):
+        """Commits the command issue, updating the next available time."""
+        self.next_issue_cycle = issue_cycle + self.issue_rate
