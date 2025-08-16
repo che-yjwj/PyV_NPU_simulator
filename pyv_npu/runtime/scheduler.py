@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Tuple, Set
 import heapq
 from ..config import SimConfig
-from ..isa.npu_ir import Program, NPUOp, Tensor
-from .resources import BandwidthTracker, BankTracker
+from ..isa.npu_ir import Program, NPUOp, Tensor, DTYPE_MAP
+from .resources import BankTracker, DramBankTracker
 from .te import calculate_systolic_array_cycles
 
 @dataclass
@@ -23,12 +23,12 @@ class Event:
     type: str = field(compare=False)
     item: Any = field(compare=False, default=None)
 
-def event_driven_schedule(p: Program, config: SimConfig) -> List[ScheduleItem]:
+def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleItem], Dict[str, Any]]:
     time = 0
     schedule: List[ScheduleItem] = []
     event_queue: List[Event] = []
 
-    dram = BandwidthTracker("dram", config)
+    dram_bank_tracker = DramBankTracker(config)
     spm_banks = BankTracker(config)
     
     te_free_time = [0] * config.te
@@ -68,12 +68,15 @@ def event_driven_schedule(p: Program, config: SimConfig) -> List[ScheduleItem]:
                 tensor_ready_time=tensor_ready_time,
                 completed_tickets=completed_tickets,
                 engine_pools={'TE': te_free_time, 'VE': ve_free_time, 'DMA': dma_free_time},
-                resource_trackers={'dram': dram, 'spm_banks': spm_banks},
+                resource_trackers={'dram_banks': dram_bank_tracker, 'spm_banks': spm_banks},
                 op_pending_time=op_pending_time
             )
 
     schedule.sort(key=lambda x: x.start_cycle)
-    return schedule
+    stats = {
+        "dram_collisions": dram_bank_tracker.collisions
+    }
+    return schedule, stats
 
 def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers):
     q_to_process = None
@@ -146,9 +149,9 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
         engine_pool[engine_idx] = op_details['end']
 
         schedule.append(ScheduleItem(
-            op=op, 
-            start_cycle=op_details['start'], 
-            end_cycle=op_details['end'], 
+            op=op,
+            start_cycle=op_details['start'],
+            end_cycle=op_details['end'],
             engine=f"{op_details['engine']}{engine_idx}",
             stall_cycles=op_details['stall_cycles'],
             stall_breakdown=op_details['stall_breakdown'],
@@ -161,29 +164,41 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
         heapq.heappush(event_queue, Event(time, 'CHECK_SCHED'))
 
 def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any]) -> Tuple[int, int, str, Dict[str, int]]:
-    dram: BandwidthTracker = resources['dram']
+    dram_banks: DramBankTracker = resources['dram_banks']
     spm: BankTracker = resources['spm_banks']
     stall_reason = "NONE"
     breakdown = {}
     
     if op.opcode in ('LOAD', 'STORE'):
-        num_bytes = op.args.get('num_bytes', 0)
-        dram_end_cycle = dram.book_transfer(start_cycle, num_bytes)
+        if not op.inputs and not op.outputs:
+            return start_cycle, start_cycle + 1, "NONE", breakdown
+        # Assuming the first tensor is the one being transferred
+        tensor = op.inputs[0] if op.opcode == 'LOAD' else op.outputs[0]
+        byte_size = DTYPE_MAP.get(tensor.dtype, 1)
+        num_bytes = tensor.num_elements * byte_size
+        dram_end_cycle, stall_reason = dram_banks.book_transfer(start_cycle, tensor.address, num_bytes)
         actual_start = start_cycle 
-        if dram_end_cycle > start_cycle + 1:
-             stall_reason = "RESOURCE_DRAM"
         return actual_start, dram_end_cycle, stall_reason, breakdown
     elif op.opcode in ("MatMul", "Conv"):
-        m, n, k = op.args.get('tile_m', 128), op.args.get('tile_n', 128), op.args.get('tile_k', 128)
-        bytes_in_a = (m * k * 2); bytes_in_b = (k * n * 2)
-        load_a_end = dram.book_transfer(start_cycle, bytes_in_a)
-        load_b_end = dram.book_transfer(start_cycle, bytes_in_b)
-        inputs_ready_cycle = max(load_a_end, load_b_end)
-        if inputs_ready_cycle > start_cycle:
-            stall_reason = "RESOURCE_DRAM"
+        if len(op.inputs) < 2 or len(op.outputs) < 1:
+            return start_cycle, start_cycle + 1, "NONE", breakdown
+        # Simplified sequential model: Load A, Load B, Compute, Store C
+        tensor_a, tensor_b = op.inputs[0], op.inputs[1]
+        tensor_c = op.outputs[0]
+
+        bytes_in_a = tensor_a.num_elements * DTYPE_MAP.get(tensor_a.dtype, 1)
+        bytes_in_b = tensor_b.num_elements * DTYPE_MAP.get(tensor_b.dtype, 1)
         
+        load_a_end, reason_a = dram_banks.book_transfer(start_cycle, tensor_a.address, bytes_in_a)
+        load_b_end, reason_b = dram_banks.book_transfer(load_a_end, tensor_b.address, bytes_in_b)
+        
+        inputs_ready_cycle = load_b_end
+        stall_reason = reason_a if reason_a != "NONE" else reason_b
+
         breakdown = calculate_systolic_array_cycles(
-            tile_m=m, tile_n=n, tile_k=k, 
+            tile_m=op.args.get('tile_m', 128),
+            tile_n=op.args.get('tile_n', 128),
+            tile_k=op.args.get('tile_k', 128),
             array_height=config.systolic_array_height, 
             array_width=config.systolic_array_width
         )
@@ -193,9 +208,15 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         compute_start_cycle = spm.find_earliest_free_slot(inputs_ready_cycle, compute_cycles, num_banks_needed)
         if compute_start_cycle > inputs_ready_cycle:
             stall_reason = "RESOURCE_SPM"
+        
         compute_end_cycle = compute_start_cycle + compute_cycles
-        bytes_out_c = (m * n * 2)
-        store_end_cycle = dram.book_transfer(compute_end_cycle, bytes_out_c)
+        bytes_out_c = tensor_c.num_elements * DTYPE_MAP.get(tensor_c.dtype, 1)
+        store_end_cycle, reason_c = dram_banks.book_transfer(compute_end_cycle, tensor_c.address, bytes_out_c)
+        
+        # The most recent stall reason is the most relevant for the resource stall breakdown
+        if reason_c != "NONE":
+            stall_reason = reason_c
+
         return compute_start_cycle, store_end_cycle, stall_reason, breakdown
     elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
         num_elements = op.args.get('num_elements', 2048)

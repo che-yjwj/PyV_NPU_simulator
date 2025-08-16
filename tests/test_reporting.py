@@ -27,7 +27,7 @@ def sample_config():
 
 def test_generate_report_json(sample_schedule, sample_config):
     """Tests the creation of the JSON report, including cycle breakdown."""
-    report = generate_report_json(sample_schedule, sample_config)
+    report = generate_report_json(sample_schedule, sample_config, stats={})
 
     assert report["total_cycles"] == 135
     timeline = report["timeline"]
@@ -44,7 +44,7 @@ def test_generate_report_json(sample_schedule, sample_config):
 
 def test_generate_html_report(sample_schedule, sample_config, tmp_path: Path):
     """Tests that the HTML report runs and includes breakdown data."""
-    report_data = generate_report_json(sample_schedule, sample_config)
+    report_data = generate_report_json(sample_schedule, sample_config, stats={})
     output_dir = tmp_path / "report"
     
     generate_html_report(report_data, output_dir)

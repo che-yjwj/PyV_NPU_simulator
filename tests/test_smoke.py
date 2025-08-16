@@ -1,4 +1,3 @@
-
 import pytest
 from unittest.mock import MagicMock
 
@@ -13,6 +12,7 @@ except ImportError:
 from pyv_npu.config import SimConfig
 from pyv_npu.ir.onnx_importer import load_onnx_as_model_ir
 from pyv_npu.compiler.mapper import map_model_ir_to_npu_program
+from pyv_npu.compiler.allocator import Allocator
 from pyv_npu.runtime.simulator import run
 
 @pytest.fixture
@@ -54,10 +54,13 @@ def test_smoke(monkeypatch, mock_onnx_model):
     # Create a default SimConfig for the test
     config = SimConfig(model=onnx_model_path)
 
-    rep = run(p, config)
+    schedule, stats = run(p, config)
 
-    assert rep.total_cycles > 0
-    assert set(rep.engine_utilization.keys()) == {"TE", "VE", "CPU"}
+    total_cycles = max((it.end_cycle for it in schedule), default=0)
+    assert total_cycles > 0
+    # The simple scheduler in L1 mode returns "CPU", "TE", "VE"
+    engines_used = {it.engine for it in schedule}
+    assert engines_used == {"TE", "VE", "CPU"}
 
 def test_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     # Mock onnx.load to return our fake model
@@ -69,11 +72,18 @@ def test_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     
     # Create a SimConfig for L2 simulation
     config = SimConfig(model=onnx_model_path, level='L2')
+    
+    # Manually run allocator since we are not using the CLI
+    allocator = Allocator(config.dram_base_address, config.dram_page_size)
+    allocator.allocate(p)
 
-    rep = run(p, config)
-    assert rep.total_cycles > 0
-    assert any(k.startswith("TE") for k in rep.engine_utilization.keys())
-    assert any(k.startswith("VE") for k in rep.engine_utilization.keys())
+    schedule, stats = run(p, config)
+    total_cycles = max((it.end_cycle for it in schedule), default=0)
+    assert total_cycles > 0
+    engines_used = {it.engine for it in schedule}
+    assert any(k.startswith("TE") for k in engines_used)
+    assert any(k.startswith("VE") for k in engines_used)
+    assert "dram_collisions" in stats
 
 @pytest.mark.skip(reason="Tight mode scheduler is not yet implemented")
 def test_tight_mode_l2_simulator_smoke(monkeypatch, mock_onnx_model):
@@ -87,7 +97,7 @@ def test_tight_mode_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     # Create a SimConfig for L2 simulation in tight mode
     config = SimConfig(model=onnx_model_path, level='L2', mode='tight')
 
-    rep = run(p, config)
-    assert rep.total_cycles > 0
-    assert any(k.startswith("TE") for k in rep.engine_utilization.keys())
-    assert any(k.startswith("VE") for k in rep.engine_utilization.keys())
+    schedule, stats = run(p, config)
+    assert stats['total_cycles'] > 0
+    assert any(k.startswith("TE") for k in stats['engine_utilization'].keys())
+    assert any(k.startswith("VE") for k in stats['engine_utilization'].keys())

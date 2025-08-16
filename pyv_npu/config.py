@@ -40,6 +40,13 @@ class SimConfig:
     bw_noc_gbps: float = 256.0
     clock_ghz: float = 1.2
 
+    # DRAM Physical Parameters
+    dram_base_address: int = 0x80000000
+    dram_channels: int = 4
+    dram_banks_per_channel: int = 8
+    dram_page_size: int = 4096
+    dram_mapping_policy: str = "interleave"
+
     # Tiling parameters
     tile_m: int = 128
     tile_n: int = 128
