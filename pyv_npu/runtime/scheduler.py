@@ -14,7 +14,7 @@ class ScheduleItem:
     end_cycle: int
     engine: str
     stall_cycles: int = 0
-    stall_reason: str = "NONE"
+    stall_breakdown: Dict[str, int] = field(default_factory=dict)
     cycle_breakdown: Dict[str, int] = field(default_factory=dict)
 
 @dataclass(order=True)
@@ -107,22 +107,33 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
         actual_start, actual_end, resource_reason, breakdown = calculate_op_timing(op, tentative_start_time, config, resource_trackers)
         
         first_pending_time = op_pending_time.get(op.name, time)
-        stall_reason = "NONE"
-        if actual_start > ideal_start_time:
-            if engine_free_time > ideal_start_time:
-                stall_reason = "RESOURCE_ENGINE"
-            else:
-                stall_reason = resource_reason
-        elif ideal_start_time > first_pending_time:
-            stall_reason = "DEP"
+        stall_breakdown = {}
         
+        # 1. Dependency Stall
+        dep_stall = ideal_start_time - first_pending_time
+        if dep_stall > 0:
+            stall_breakdown["DEP"] = dep_stall
+
+        # 2. Resource Stall
+        # The time spent waiting for a resource after dependencies are met
+        resource_stall = actual_start - ideal_start_time
+        if resource_stall > 0:
+            # Determine the primary resource bottleneck
+            if engine_free_time > ideal_start_time:
+                stall_breakdown["RESOURCE_ENGINE"] = resource_stall
+            else:
+                # resource_reason from calculate_op_timing is the key
+                stall_breakdown[resource_reason] = resource_stall
+        
+        total_stall = sum(stall_breakdown.values())
+
         if actual_start < earliest_start_time:
             earliest_start_time = actual_start
             best_op_item = op_item
             op_details = {
                 'start': actual_start, 'end': actual_end, 'engine': engine_type,
-                'stall_cycles': actual_start - first_pending_time,
-                'stall_reason': stall_reason,
+                'stall_cycles': total_stall,
+                'stall_breakdown': stall_breakdown,
                 'cycle_breakdown': breakdown
             }
 
@@ -140,7 +151,7 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
             end_cycle=op_details['end'], 
             engine=f"{op_details['engine']}{engine_idx}",
             stall_cycles=op_details['stall_cycles'],
-            stall_reason=op_details['stall_reason'],
+            stall_breakdown=op_details['stall_breakdown'],
             cycle_breakdown=op_details['cycle_breakdown']
         ))
 

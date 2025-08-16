@@ -31,7 +31,7 @@ def generate_report_json(schedule: List[ScheduleItem], config: SimConfig) -> Dic
             'end': item.end_cycle,
             'duration': duration,
             'stall_cycles': item.stall_cycles,
-            'stall_reason': item.stall_reason,
+            'stall_breakdown': item.stall_breakdown,
         }
         if item.cycle_breakdown:
             timeline_item.update(item.cycle_breakdown)
@@ -80,7 +80,7 @@ def generate_html_report(report_data: Dict[str, Any], output_dir: Path):
         y="engine",
         color="op",
         hover_name="name",
-        hover_data=['engine', 'stall_cycles', 'stall_reason', 'compute', 'fill_drain'],
+        hover_data=['engine', 'stall_cycles', 'stall_breakdown', 'compute', 'fill_drain'],
         title="NPU Simulation Gantt Chart"
     )
     fig.update_yaxes(autorange="reversed")

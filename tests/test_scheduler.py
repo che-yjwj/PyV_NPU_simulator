@@ -17,7 +17,8 @@ def test_scheduler_stall_reason_dep():
 
     # op2 should have a dependency stall waiting for op1
     assert op2_item.stall_cycles > 0
-    assert op2_item.stall_reason == "DEP"
+    assert "DEP" in op2_item.stall_breakdown
+    assert op2_item.stall_breakdown["DEP"] > 0
 
 def test_scheduler_stall_reason_resource():
     """Tests that resource stalls (engine) are correctly identified."""
@@ -36,4 +37,5 @@ def test_scheduler_stall_reason_resource():
 
     # The second op should have a resource stall waiting for the first to finish
     assert second_op_item.stall_cycles > 0
-    assert second_op_item.stall_reason == "RESOURCE_ENGINE"
+    assert "RESOURCE_ENGINE" in second_op_item.stall_breakdown
+    assert second_op_item.stall_breakdown["RESOURCE_ENGINE"] > 0

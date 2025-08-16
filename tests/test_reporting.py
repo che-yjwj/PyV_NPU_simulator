@@ -13,10 +13,11 @@ def sample_schedule():
     op2 = NPUOp(opcode="GELU", name="op2")
     
     op1_breakdown = {'total': 100, 'compute': 80, 'fill_drain': 20}
+    op2_stall_breakdown = {"RESOURCE_SPM": 15}
     
     return [
-        ScheduleItem(op=op1, start_cycle=0, end_cycle=100, engine="TE0", stall_cycles=0, stall_reason="NONE", cycle_breakdown=op1_breakdown),
-        ScheduleItem(op=op2, start_cycle=115, end_cycle=135, engine="VE0", stall_cycles=15, stall_reason="RESOURCE_SPM"),
+        ScheduleItem(op=op1, start_cycle=0, end_cycle=100, engine="TE0", stall_cycles=0, stall_breakdown={}, cycle_breakdown=op1_breakdown),
+        ScheduleItem(op=op2, start_cycle=115, end_cycle=135, engine="VE0", stall_cycles=15, stall_breakdown=op2_stall_breakdown),
     ]
 
 @pytest.fixture
