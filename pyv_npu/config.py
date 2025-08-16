@@ -27,6 +27,9 @@ class SimConfig:
 
     # Tight-coupled mode params
     te_isa: List[str] = field(default_factory=lambda: ["enqcmd", "twait", "tbar", "tstat"])
+    tight_mode_doorbell_latency: int = 20
+    tight_mode_csr_latency: int = 5
+    tight_mode_issue_rate: int = 2
 
     # Core NPU parameters (from PRD section 9)
     te: int = 2

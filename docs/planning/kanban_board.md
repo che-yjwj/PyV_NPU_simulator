@@ -61,16 +61,6 @@ v250813b
 
 ## Ready
 
-### C-03 | TE 코스트 모델 단위테스트
-- **요약**: C-01을 위한 파라미터 스윕용 테스터(타일/어레이/주기)
-- **수용기준**: 최소 20 케이스 자동 검증, 경계값 테스트 포함
-- **우선순위**: P0 / **사이즈**: S / **의존성**: C-01 / **태그**: 테스트, TE
-
-### M-02 | DRAM 채널/뱅크 매핑 정책
-- **요약**: 어드레스→(채널,뱅크,행,열) 매핑 함수 & 정책 선택(Interleave, RR)
-- **수용기준**: 정책별 충돌율 비교 리포트(샘플 3종)
-- **우선순위**: P1 / **사이즈**: M / **의존성**: M-01 / **태그**: 메모리
-
 ### P-03 | IR 메타 확장(Quant/Layout/Stride)
 - **요약**: IR 텐서 메타데이터에 quant/stride/layout 플래그 필드 추가
 - **수용기준**: onnx_importer→IR→mapper→runtime 경로에서 유지 검증
@@ -99,12 +89,20 @@ v250813b
 
 ## Done
 
+### C-03 | TE 코스트 모델 단위테스트
+- **내용**: C-01을 위한 파라미터 스윕용 테스터(타일/어레이/주기)를 구현하고, 20개 이상의 자동 검증 케이스(경계값 포함)를 추가함. 이 과정에서 발견된 계산 모델의 버그를 수정하여 안정성을 확보함.
+- **출력물**: `pyv_npu/runtime/te.py`, `tests/runtime/test_te.py`
+
+### M-02 | DRAM 채널/뱅크 매핑 정책
+- **내용**: DRAM 주소를 (채널, 뱅크)로 변환하는 `DramAddressMapper`와, 이를 사용하여 뱅크 경합을 모델링하는 `DramBankTracker`를 구현함. 이를 위해 컴파일러에 메모리 할당 단계를 추가하고, 스케줄러 및 리포팅 파이프라인을 리팩토링함.
+- **출력물**: `pyv_npu/compiler/allocator.py`, `pyv_npu/runtime/memory.py`, `pyv_npu/runtime/resources.py`, `pyv_npu/runtime/scheduler.py`, `pyv_npu/cli/main.py`, `pyv_npu/config.py`, `pyv_npu/isa/npu_ir.py`, `tests/**`
+
 ### C-01 | TE 코스트 모델 v1
 - **내용**: 시스톨릭 어레이의 fill/drain 오버헤드를 반영한 TE 성능 모델 v1을 구현하고, 관련 단위 테스트 및 리포팅 연동을 완료함.
 - **출력물**: `pyv_npu/config.py`, `pyv_npu/runtime/te.py`, `pyv_npu/runtime/scheduler.py`, `tests/runtime/test_te.py`, `pyv_npu/utils/reporting.py`
 
 ### S-02 | 스케줄러 Stall 계산 로직 수정
-- **내용**: 자원 경합 시 Stall 계산이 부정확하던 버그를 수정하고, 다중 bank 동시 접근 테스트 케이스를 추가하여 안정성을 확보함.
+- **내용**: 자원 경합 시 Stall 계산이 부정확하던 버그를 수정하고, 다중 bank 동시 접근 테스트 케이스를 추가하여 안정성을 확보함. **추가로, 스케줄러의 리소스 탐색(probe)과 확정(commit) 로직을 분리하여, 탐색 시 부작용이 발생하던 근본적인 결함을 해결함.**
 - **출력물**: `pyv_npu/runtime/scheduler.py`, `pyv_npu/runtime/resources.py`, `tests/test_scheduler.py`
 
 ### CFG-01 | YAML 하드웨어 설정 외부화
