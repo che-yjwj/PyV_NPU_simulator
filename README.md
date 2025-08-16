@@ -140,3 +140,109 @@ The simulator starts with a set of default hardware parameters, which can be cus
 - `pyv_npu/cli`: Command-line interface entry point.
 - `examples`: Example models and scripts.
 - `tests`: Unit and integration tests.
+
+## Codebase & Data Flow
+```
+                  PyV-NPU Simulator: Codebase & Data Flow
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 1. User Input & Config                                                        │
+└───────────────────────────────────────────────────────────────────────────────┘
+       (User) --> pyv-npu [compile|run] --model <file> --mode [loose|tight] ...
+                      |
+                      v
+              +------------------+
+              |  cli/main.py     |
+              +------------------+
+                      |
+                      v
+              +------------------+
+              |  config.py       | (Loads YAML, overridden by CLI args)
+              |  (SimConfig)     | 
+              +------------------+
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 2. Compilation Pipeline (ONNX -> NPU Program)                                 │
+└───────────────────────────────────────────────────────────────────────────────┘
+       [ONNX Model]
+            |
+            v
+  +-------------------------+
+  | ir/onnx_importer.py     |
+  +-------------------------+
+            |
+            v
+      [Model IR]
+            |
+            v
+  +-------------------------+
+  | compiler/passes/*.py    | (Tiling, Fusion, etc. are placeholders/TODO)
+  +-------------------------+
+            |
+            v
+      [Model IR (opt)]
+            |
+            v
+  +-------------------------+
+  | compiler/mapper.py      |
+  |                         |----(if mode=='loose')----> [NPU Program]
+  |                         |                            (Opcode: MatMul, Add...)
+  |                         |
+  |                         |----(if mode=='tight')----> [NPU Program]
+  |                                                      (Opcode: ENQCMD_T, TWAIT...)
+  +-------------------------+
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 3. Runtime & Simulation (NPU Program -> Schedule)                             │
+└───────────────────────────────────────────────────────────────────────────────┘
+      [NPU Program] + [SimConfig]
+                 |
+                 v
+       +-----------------------+
+       | runtime/simulator.py  | (run() function)
+       +-----------------------+
+                 |
+                 +----(if level=='L2')----> +---------------------------+
+                 |
+                 |                          | runtime/scheduler.py      |
+                 |                          | (event_driven_schedule)   |
+                 |                          +---------------------------+
+                 |                                      |
+                 |            +-------------------------+--------------------------+
+                 |            |                         |                          |
+                 |            v                         v                          v
+                 |      +---------------+      +--------------------+      +----------------+
+                 |      | Event Queue   |      | Resource Models    |      | Cost Models    |
+                 |      | (heapq)       |      | (resources.py)     |      | (te.py, ve.py) |
+                 |      +---------------+      | - BandwidthTracker |
+                 |                             | - BankTracker      |
+                 |                             +--------------------+      +----------------+
+                 |                                                                    
+                 +----(if level=='L0/L1')---> +---------------------------+
+                                            | runtime/scheduler.py      |
+                                            | (simple_greedy_schedule)  |
+                                            +---------------------------+
+                                                        |
+                                                        v
+                                                  [Schedule]
+                                           (List of ScheduleItem objects)
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 4. Reporting (Schedule -> Output Files)                                       │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                                  [Schedule]
+                                                        |
+                                                        v
+                                           +--------------------------+
+                                           | utils/reporting.py       |
+                                           | utils/viz.py             |
+                                           +--------------------------+
+                                                        |
+                           +----------------------------+---------------------------+
+                           |                            |                           |
+                           v                            v                           v
+                  +----------------+           +----------------+          +-----------------+
+                  | report.json    |           | report.html    |          | ASCII Gantt     |
+                  | (Raw Timeline, |           | (Plotly Gantt  |          | (Console Output)|
+                  |  Stats)        |           |  Chart)        |          +-----------------+
+                  +----------------+           +----------------+
+```
