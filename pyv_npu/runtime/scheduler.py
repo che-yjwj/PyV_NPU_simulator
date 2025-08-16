@@ -8,6 +8,12 @@ from .resources import BankTracker, DramBankTracker
 from .te import calculate_systolic_array_cycles
 
 @dataclass
+class BookingInfo:
+    """Holds the information needed to commit a resource booking."""
+    dram_transfers: List[Dict[str, Any]] = field(default_factory=list)
+    spm_slots: List[Dict[str, Any]] = field(default_factory=list)
+
+@dataclass
 class ScheduleItem:
     op: NPUOp
     start_cycle: int
@@ -90,6 +96,7 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
     best_op_item = None
     earliest_start_time = float('inf')
     op_details = {}
+    best_booking_info = None
 
     for op_item in list(q_to_process):
         op = op_item[0] if is_tight else op_item
@@ -107,32 +114,27 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
         engine_free_time = min(engine_pool)
         
         tentative_start_time = max(ideal_start_time, engine_free_time)
-        actual_start, actual_end, resource_reason, breakdown = calculate_op_timing(op, tentative_start_time, config, resource_trackers)
+        actual_start, actual_end, resource_reason, breakdown, booking_info = calculate_op_timing(op, tentative_start_time, config, resource_trackers)
         
-        first_pending_time = op_pending_time.get(op.name, time)
-        stall_breakdown = {}
-        
-        # 1. Dependency Stall
-        dep_stall = ideal_start_time - first_pending_time
-        if dep_stall > 0:
-            stall_breakdown["DEP"] = dep_stall
-
-        # 2. Resource Stall
-        # The time spent waiting for a resource after dependencies are met
-        resource_stall = actual_start - ideal_start_time
-        if resource_stall > 0:
-            # Determine the primary resource bottleneck
-            if engine_free_time > ideal_start_time:
-                stall_breakdown["RESOURCE_ENGINE"] = resource_stall
-            else:
-                # resource_reason from calculate_op_timing is the key
-                stall_breakdown[resource_reason] = resource_stall
-        
-        total_stall = sum(stall_breakdown.values())
-
         if actual_start < earliest_start_time:
+            first_pending_time = op_pending_time.get(op.name, time)
+            stall_breakdown = {}
+            dep_stall = ideal_start_time - first_pending_time
+            if dep_stall > 0:
+                stall_breakdown["DEP"] = dep_stall
+
+            resource_stall = actual_start - ideal_start_time
+            if resource_stall > 0:
+                if engine_free_time > ideal_start_time:
+                    stall_breakdown["RESOURCE_ENGINE"] = resource_stall
+                elif resource_reason != "NONE":
+                    stall_breakdown[resource_reason] = resource_stall
+            
+            total_stall = sum(stall_breakdown.values())
+
             earliest_start_time = actual_start
             best_op_item = op_item
+            best_booking_info = booking_info
             op_details = {
                 'start': actual_start, 'end': actual_end, 'engine': engine_type,
                 'stall_cycles': total_stall,
@@ -143,6 +145,18 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
     if best_op_item:
         op = best_op_item[0] if is_tight else best_op_item
         ticket = best_op_item[1] if is_tight else None
+
+        # Commit the resource bookings for the chosen op
+        dram_banks: DramBankTracker = resource_trackers['dram_banks']
+        spm: BankTracker = resource_trackers['spm_banks']
+        
+        if op_details['stall_breakdown'].get("RESOURCE_DRAM_BANK"):
+            dram_banks.collisions += 1
+
+        for booking in best_booking_info.dram_transfers:
+            dram_banks.commit_transfer(**booking)
+        for booking in best_booking_info.spm_slots:
+            spm.commit_slot(**booking)
 
         engine_pool = engine_pools[op_details['engine']]
         engine_idx = engine_pool.index(min(engine_pool))
@@ -163,73 +177,79 @@ def run_scheduler_pass(cpu_op_queue, npu_op_queue, time, config, schedule, event
         heapq.heappush(event_queue, Event(time=op_details['end'], type='OP_COMPLETE', item=(op, op_details['end'], ticket)))
         heapq.heappush(event_queue, Event(time, 'CHECK_SCHED'))
 
-def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any]) -> Tuple[int, int, str, Dict[str, int]]:
+def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any]) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
     dram_banks: DramBankTracker = resources['dram_banks']
     spm: BankTracker = resources['spm_banks']
     stall_reason = "NONE"
     breakdown = {}
-    
+    booking_info = BookingInfo()
+
     if op.opcode in ('LOAD', 'STORE'):
         if not op.inputs and not op.outputs:
-            return start_cycle, start_cycle + 1, "NONE", breakdown
-        # Assuming the first tensor is the one being transferred
+            return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info
         tensor = op.inputs[0] if op.opcode == 'LOAD' else op.outputs[0]
         byte_size = DTYPE_MAP.get(tensor.dtype, 1)
         num_bytes = tensor.num_elements * byte_size
-        dram_end_cycle, stall_reason = dram_banks.book_transfer(start_cycle, tensor.address, num_bytes)
-        actual_start = start_cycle 
-        return actual_start, dram_end_cycle, stall_reason, breakdown
+        
+        actual_start, duration, stall_reason, ch_id, b_id = dram_banks.probe_transfer(start_cycle, tensor.address, num_bytes)
+        booking_info.dram_transfers.append({
+            'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': actual_start, 'duration': duration
+        })
+        return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
+
     elif op.opcode in ("MatMul", "Conv"):
         if len(op.inputs) < 2 or len(op.outputs) < 1:
-            return start_cycle, start_cycle + 1, "NONE", breakdown
-        # Simplified sequential model: Load A, Load B, Compute, Store C
+            return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info
+        
         tensor_a, tensor_b = op.inputs[0], op.inputs[1]
         tensor_c = op.outputs[0]
 
-        bytes_in_a = tensor_a.num_elements * DTYPE_MAP.get(tensor_a.dtype, 1)
-        bytes_in_b = tensor_b.num_elements * DTYPE_MAP.get(tensor_b.dtype, 1)
+        bytes_a = tensor_a.num_elements * DTYPE_MAP.get(tensor_a.dtype, 1)
+        bytes_b = tensor_b.num_elements * DTYPE_MAP.get(tensor_b.dtype, 1)
+        bytes_c = tensor_c.num_elements * DTYPE_MAP.get(tensor_c.dtype, 1)
+
+        load_a_start, load_a_dur, reason_a, ch_a, b_a = dram_banks.probe_transfer(start_cycle, tensor_a.address, bytes_a)
+        load_b_start, load_b_dur, reason_b, ch_b, b_b = dram_banks.probe_transfer(load_a_start + load_a_dur, tensor_b.address, bytes_b)
         
-        load_a_end, reason_a = dram_banks.book_transfer(start_cycle, tensor_a.address, bytes_in_a)
-        load_b_end, reason_b = dram_banks.book_transfer(load_a_end, tensor_b.address, bytes_in_b)
-        
-        inputs_ready_cycle = load_b_end
+        inputs_ready_cycle = load_b_start + load_b_dur
         stall_reason = reason_a if reason_a != "NONE" else reason_b
 
         breakdown = calculate_systolic_array_cycles(
-            tile_m=op.args.get('tile_m', 128),
-            tile_n=op.args.get('tile_n', 128),
-            tile_k=op.args.get('tile_k', 128),
-            array_height=config.systolic_array_height, 
-            array_width=config.systolic_array_width
+            tile_m=op.args.get('tile_m', 128), tile_n=op.args.get('tile_n', 128), tile_k=op.args.get('tile_k', 128),
+            array_height=config.systolic_array_height, array_width=config.systolic_array_width
         )
         compute_cycles = breakdown['total']
 
         num_banks_needed = config.spm_banks // 2
-        compute_start_cycle = spm.find_earliest_free_slot(inputs_ready_cycle, compute_cycles, num_banks_needed)
+        compute_start_cycle, chosen_banks = spm.probe_earliest_free_slot(inputs_ready_cycle, compute_cycles, num_banks_needed)
         if compute_start_cycle > inputs_ready_cycle:
             stall_reason = "RESOURCE_SPM"
         
         compute_end_cycle = compute_start_cycle + compute_cycles
-        bytes_out_c = tensor_c.num_elements * DTYPE_MAP.get(tensor_c.dtype, 1)
-        store_end_cycle, reason_c = dram_banks.book_transfer(compute_end_cycle, tensor_c.address, bytes_out_c)
-        
-        # The most recent stall reason is the most relevant for the resource stall breakdown
+        store_start, store_dur, reason_c, ch_c, b_c = dram_banks.probe_transfer(compute_end_cycle, tensor_c.address, bytes_c)
         if reason_c != "NONE":
             stall_reason = reason_c
 
-        return compute_start_cycle, store_end_cycle, stall_reason, breakdown
+        booking_info.dram_transfers.append({'channel_id': ch_a, 'bank_id': b_a, 'start_cycle': load_a_start, 'duration': load_a_dur})
+        booking_info.dram_transfers.append({'channel_id': ch_b, 'bank_id': b_b, 'start_cycle': load_b_start, 'duration': load_b_dur})
+        booking_info.dram_transfers.append({'channel_id': ch_c, 'bank_id': b_c, 'start_cycle': store_start, 'duration': store_dur})
+        booking_info.spm_slots.append({'cycle': compute_start_cycle, 'duration': compute_cycles, 'chosen_banks': chosen_banks})
+
+        return compute_start_cycle, store_start + store_dur, stall_reason, breakdown, booking_info
+
     elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
         num_elements = op.args.get('num_elements', 2048)
         compute_cycles = max(5, num_elements // 16)
         num_banks_needed = 2
-        compute_start_cycle = spm.find_earliest_free_slot(start_cycle, compute_cycles, num_banks_needed)
-        compute_end_cycle = compute_start_cycle + compute_cycles
+        compute_start_cycle, chosen_banks = spm.probe_earliest_free_slot(start_cycle, compute_cycles, num_banks_needed)
         if compute_start_cycle > start_cycle:
             stall_reason = "RESOURCE_SPM"
         breakdown = {'total': compute_cycles, 'compute': compute_cycles}
-        return compute_start_cycle, compute_end_cycle, stall_reason, breakdown
+        booking_info.spm_slots.append({'cycle': compute_start_cycle, 'duration': compute_cycles, 'chosen_banks': chosen_banks})
+        return compute_start_cycle, compute_start_cycle + compute_cycles, stall_reason, breakdown, booking_info
+
     else:
-        return start_cycle, start_cycle + 1, "NONE", breakdown
+        return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info
 
 def get_engine_for_op(op: NPUOp) -> str:
     if op.opcode in ("MatMul", "Conv"):
