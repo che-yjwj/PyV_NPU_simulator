@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Dict
+import math
 
 def calculate_systolic_array_cycles(tile_m: int, tile_n: int, tile_k: int, array_height: int, array_width: int) -> Dict[str, int]:
     """
@@ -20,7 +21,10 @@ def calculate_systolic_array_cycles(tile_m: int, tile_n: int, tile_k: int, array
     # This is a simplified throughput calculation.
     # It assumes 1 MAC operation per cycle per Processing Element (PE).
     num_pes = array_height * array_width
-    compute_cycles = (tile_m * tile_n * tile_k) // num_pes
+    if num_pes == 0:
+        compute_cycles = 0
+    else:
+        compute_cycles = math.ceil((tile_m * tile_n * tile_k) / num_pes)
 
     total_cycles = compute_cycles + fill_drain_cycles
 
