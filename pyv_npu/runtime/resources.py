@@ -1,6 +1,7 @@
 from __future__ import annotations
 from ..config import SimConfig
 from typing import List, Tuple
+from .memory import DramAddressMapper
 
 class BandwidthTracker:
     """Models a resource with a fixed bandwidth (e.g., DRAM, NoC)."""
@@ -84,3 +85,61 @@ class BankTracker:
             # If no slot found, advance time and retry.
             # A smarter implementation would jump to the next available slot time.
             current_try_cycle += 1
+
+class DramBankTracker:
+    """Models DRAM channel and bank contention."""
+
+    def __init__(self, config: SimConfig):
+        self.config = config
+        self.mapper = DramAddressMapper(config)
+        self.num_channels = config.dram_channels
+        self.num_banks_per_channel = config.dram_banks_per_channel
+
+        # List of free times for each bank in each channel
+        # self.bank_free_time[channel_id][bank_id] = next_free_cycle
+        self.bank_free_time: List[List[int]] = [
+            [0] * self.num_banks_per_channel for _ in range(self.num_channels)
+        ]
+        self.collisions = 0
+
+    def get_transfer_cycles(self, num_bytes: int) -> int:
+        """Calculates cycles to transfer data based on bandwidth of a single channel."""
+        if self.config.bw_dram_gbps == 0 or self.num_channels == 0:
+            return 0
+        # Per-channel bandwidth
+        channel_bw_gbps = self.config.bw_dram_gbps / self.num_channels
+        seconds = num_bytes / (channel_bw_gbps * 1e9)
+        return self.config.cycles(seconds)
+
+    def book_transfer(self, start_cycle: int, address: int, num_bytes: int) -> Tuple[int, str]:
+        """
+        Books a data transfer, returning the end cycle and the stall reason.
+        This model assumes a transfer occupies a single bank in a single channel.
+        A more complex model could span multiple banks/channels.
+        """
+        if address is None:
+            # If a tensor has no address, assume no contention.
+            # This can happen for virtual tensors or placeholders.
+            duration = self.get_transfer_cycles(num_bytes)
+            return start_cycle + duration, "NONE"
+
+        channel_id, bank_id = self.mapper.map(address)
+        
+        duration = self.get_transfer_cycles(num_bytes)
+        if duration == 0:
+            return start_cycle, "NONE"
+
+        bank_available_cycle = self.bank_free_time[channel_id][bank_id]
+        
+        actual_start = max(start_cycle, bank_available_cycle)
+        
+        if actual_start > start_cycle:
+            self.collisions += 1
+            stall_reason = "RESOURCE_DRAM_BANK"
+        else:
+            stall_reason = "NONE"
+
+        end_cycle = actual_start + duration
+        self.bank_free_time[channel_id][bank_id] = end_cycle
+        
+        return end_cycle, stall_reason

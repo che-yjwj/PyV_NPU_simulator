@@ -1,8 +1,27 @@
+from __future__ import annotations
+from ..config import SimConfig
 
-from dataclasses import dataclass
+class DramAddressMapper:
+    """Maps a physical DRAM address to a channel and bank."""
 
-@dataclass
-class MemoryStats:
-    dram_bytes_read: int = 0
-    dram_bytes_written: int = 0
-    sram_spills: int = 0
+    def __init__(self, config: SimConfig):
+        self.policy = config.dram_mapping_policy
+        self.channels = config.dram_channels
+        self.banks_per_channel = config.dram_banks_per_channel
+        # Assuming row size is the most significant interleaving factor
+        # and it's larger than a typical cache line. Let's use a fixed value for now.
+        self.row_size = 2048 
+
+    def map(self, address: int) -> tuple[int, int]:
+        """
+        Maps a physical address to (channel_id, bank_id).
+        A simple interleaving policy based on row address.
+        """
+        # A simple policy: interleave channels based on low-order bits of the row number
+        row_number = address // self.row_size
+        channel_id = row_number % self.channels
+        
+        # Interleave banks based on the next bits
+        bank_id = (row_number // self.channels) % self.banks_per_channel
+        
+        return channel_id, bank_id

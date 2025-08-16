@@ -7,10 +7,10 @@ import pandas as pd
 from ..config import SimConfig
 from ..runtime.scheduler import ScheduleItem
 
-def generate_report_json(schedule: List[ScheduleItem], config: SimConfig) -> Dict[str, Any]:
+def generate_report_json(schedule: List[ScheduleItem], config: SimConfig, stats: Dict[str, Any]) -> Dict[str, Any]:
     """Generates a JSON-compatible dictionary from the schedule."""
     if not schedule:
-        return {"total_cycles": 0, "engine_utilization": {}, "timeline": []}
+        return {"total_cycles": 0, "engine_utilization": {}, "timeline": [], "stats": stats}
 
     total_cycles = max(item.end_cycle for item in schedule)
     timeline = []
@@ -52,13 +52,15 @@ def generate_report_json(schedule: List[ScheduleItem], config: SimConfig) -> Dic
     if config.dma_channels > 0:
         utilization_perc['DMA_utilization'] = f"{(utilization_abs.get('DMA', 0) / (total_cycles * config.dma_channels)):.2%}"
 
-    return {
+    report_data = {
         "total_cycles": total_cycles,
         "engine_util_abs": utilization_abs,
         "engine_utilization": utilization_perc,
         "timeline": timeline,
         "config": config.__dict__
     }
+    report_data.update(stats)
+    return report_data
 
 def generate_html_report(report_data: Dict[str, Any], output_dir: Path):
     """Generates a self-contained HTML report with a Gantt chart."""
@@ -115,9 +117,9 @@ def generate_ascii_gantt(report_data: Dict[str, Any], width: int = 80):
         print(f"{engine: >10} | {''.join(lane)} |")
     print("-------------------------")
 
-def generate_report(schedule: List[ScheduleItem], config: SimConfig):
+def generate_report(schedule: List[ScheduleItem], config: SimConfig, stats: Dict[str, Any]):
     """Generates all report artifacts."""
-    report_data = generate_report_json(schedule, config)
+    report_data = generate_report_json(schedule, config, stats)
     output_dir = Path(config.report_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -129,3 +131,13 @@ def generate_report(schedule: List[ScheduleItem], config: SimConfig):
     generate_ascii_gantt(report_data)
 
     print(f"Reports generated in {output_dir.absolute()}")
+
+    # Print summary stats to console
+    if report_data.get('dram_collisions') is not None:
+        print(f"DRAM Bank Collisions: {report_data['dram_collisions']}")
+    
+    if report_data.get('engine_utilization'):
+        print("\nEngine Utilization:")
+        for key, value in report_data['engine_utilization'].items():
+            print(f"  {key}: {value}")
+    print(f"\nTotal Cycles: {report_data['total_cycles']}")

@@ -4,6 +4,14 @@ from typing import Dict, Any, List, Tuple
 from functools import reduce
 import operator
 
+# A map to get byte size from dtype string
+DTYPE_MAP = {
+    "float32": 4,
+    "float16": 2,
+    "int8": 1,
+    "uint8": 1,
+}
+
 # Forward declaration for type hint
 class Tensor:
     pass
@@ -23,6 +31,7 @@ class Tensor:
     name: str
     shape: Tuple[int, ...]
     dtype: str # e.g., "float16", "int8"
+    address: int | None = None
 
     @property
     def num_elements(self) -> int:

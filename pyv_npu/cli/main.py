@@ -5,9 +5,10 @@ from ..compiler.passes.tiling import apply_tiling_pass
 from ..compiler.passes.fusion import apply_fusion_pass
 from ..compiler.passes.quantization import apply_quant_pass
 from ..compiler.mapper import map_model_ir_to_npu_program
+from ..compiler.allocator import Allocator
 from ..runtime.simulator import run as run_sim
 from ..config import SimConfig
-from ..utils.viz import export_gantt, export_gantt_ascii
+from ..utils.reporting import generate_report
 
 def cmd_compile(args):
     """Handles the 'compile' command."""
@@ -20,6 +21,10 @@ def cmd_compile(args):
     model_ir = apply_quant_pass(model_ir, mode=args.quant)
 
     npu_prog = map_model_ir_to_npu_program(model_ir, mode=args.mode)
+
+    # Allocate memory for tensors
+    allocator = Allocator() # Use default base address and page size
+    allocator.allocate(npu_prog)
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     with open(args.output, "w") as f:
@@ -36,35 +41,21 @@ def cmd_run(args):
     print(config)
     print("-----------------------------")
 
-    # --- This part is a simplified pipeline for now ---
     # 1. Load and compile the model
     model_ir = load_onnx_as_model_ir(config.model)
     npu_prog = map_model_ir_to_npu_program(model_ir, mode=config.mode)
 
+    # Allocate memory for tensors
+    allocator = Allocator(config.dram_base_address, config.dram_page_size)
+    allocator.allocate(npu_prog)
+
     # 2. Run simulation
-    # The simulator will now need the config to model behavior
-    report = run_sim(npu_prog, config)
+    schedule, stats = run_sim(npu_prog, config)
 
-    # 3. Save report
-    os.makedirs(config.report_dir, exist_ok=True)
-    report_path = os.path.join(config.report_dir, "report.json")
-    with open(report_path, "w") as f:
-        # A more sophisticated report would be generated here
-        json.dump({
-            "total_cycles": report.total_cycles,
-            "engine_utilization": report.engine_utilization,
-            "timeline": report.timeline,
-        }, f, indent=2)
+    # 3. Generate all reports
+    generate_report(schedule, config, stats)
 
-    print(f"[OK] Simulation finished. Report saved to {report_path}")
-
-    # 4. Generate Gantt chart if requested
-    if args.gantt:
-        export_gantt(report.timeline, args.gantt)
-
-    # 5. Print ASCII Gantt chart if requested
-    if args.ascii_gantt:
-        print(export_gantt_ascii(report.timeline))
+    print(f"[OK] Simulation finished. Reports are in {config.report_dir}")
 
 def build_parser():
     p = argparse.ArgumentParser(
