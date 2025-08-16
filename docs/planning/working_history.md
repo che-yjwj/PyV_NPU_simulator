@@ -1,3 +1,17 @@
+V250816a
+  T-01 과제 완료 요약:
+   1. 설정 추가: config.py에 tight 모드 제어 관련 지연 시간 파라미터를 추가했습니다.
+   2. 리소스 모델링: NPU 명령어 처리율을 모델링하는 IssueQueueTracker를 추가했습니다.
+   3. 스케줄러 리팩토링 (핵심):
+       * ENQCMD_T로 제출된 NPU 작업을 별도의 npu_work_queue에서 관리하도록 스케줄러 아키텍처를 변경했습니다.
+       * ENQCMD_T (CPU) -> ENQCMD_COMPLETE 이벤트 -> npu_work_queue에 작업 추가 -> NPU 엔진에 스케줄링 ->   
+         OP_COMPLETE 이벤트 -> TWAIT 해제'로 이어지는, 실제와 유사한 이벤트 흐름을 구현했습니다.
+       * 새로운 제어 지연 시간(doorbell, csr, issue_rate)을 calculate_op_timing에 반영했습니다.
+   4. 리포팅: tight 모드의 제어 오버헤드 통계(p50, p95 등)를 계산하고 표시하도록 리포팅 모듈을
+      업데이트했습니다.
+   5. 검증: 신규 기능을 검증하고 수용 기준을 만족시키는 test_tight_vs_loose_overhead_comparison 테스트를    
+      추가하고, 모든 테스트 통과를 확인했습니다.
+
 V250815a
 리소스/성능 모델 개선 제안 (단기)
 
