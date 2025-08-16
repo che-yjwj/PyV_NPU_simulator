@@ -1,3 +1,22 @@
+v250815
+# 코드베이스 분석 요약 (Gemini)
+
+## 현재 구현 상태 요약
+문서(PRD, 칸반보드)의 내용과 실제 구현이 잘 일치하며, L2 이벤트 기반 시뮬레이션을 위한 핵심 기능이 완성된 상태입니다.
+
+- **CLI & 설정 (`cli/main.py`, `config.py`)**: `compile`/`run` 명령어와 `loose`/`tight` 모드를 완벽하게 지원하며, YAML과 CLI 인자를 통한 계층적 설정 로딩 기능이 구현되어 있습니다.
+
+- **컴파일러 (`compiler/`, `ir/`, `isa/`)**: ONNX → `Model_IR` → `NPU_Program`으로 이어지는 파이프라인이 명확합니다. `mapper.py`는 `loose`/`tight` 모드에 따른 프로그램 생성을 정확히 구현하고 있으나, `fusion`, `tiling` 등 최적화 패스는 현재 이름만 있는 상태입니다.
+
+- **런타임 (`runtime/`)**:
+    - `simulator.py`는 설정된 `level`에 따라 L1(단순) 또는 L2(이벤트 기반) 스케줄러를 적절히 선택합니다.
+    - `scheduler.py`의 `event_driven_schedule`는 이벤트 큐를 통해 의존성과 자원 상태를 모두 고려하는 핵심 로직을 포함합니다.
+    - `resources.py`는 `BandwidthTracker`(대역폭)와 `BankTracker`(메모리 뱅크)를 구현하여 자원 경합을 모델링합니다.
+    - `te.py`는 `fill/drain` 오버헤드를 포함한 Systolic Array 비용 모델을 구현했습니다.
+
+- **리포팅 (`utils/`)**: `reporting.py`는 상세한 `report.json`을 생성하며, `viz.py`와 연계하여 대화형 HTML 간트 차트 및 콘솔용 ASCII 간트 차트를 시각화하는 기능까지 갖추고 있습니다.
+
+---
 v250813a
 # PyV-NPU 코드 분석 보고서(chatgpt)
 
