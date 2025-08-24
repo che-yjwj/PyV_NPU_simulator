@@ -42,11 +42,11 @@
    - **Descriptor 필드**: op, addr_in/out, tile_shape, bank_mask, prio, prefetch_dist
    - **CSR/MMIO 연계**: TE 큐 주소, Doorbell, IRQ 상태, 성능 카운터
 
-## 3) 개발 레벨(Levels)
-- **L0 Functional**: ONNX→NPU-IR 변환 및 기능 검증(초고속)  
-- **L1 Tile-Time**: 타일 단위 지연/중첩 모델 + 단순 경합  
-- **L2 Event/Resource**: 이벤트 기반 실행, DMA/NoC/Bank 경합·스케줄러 포함  
-- **L3 Cycle-Accurate(옵션)**: 일부 커널 Verilator co-sim으로 검증
+## 3) 개발 레벨(Levels) - `sim_level`
+- **`IA` (기능 정확성)**: ONNX→NPU-IR 변환 및 기능 검증(초고속)  
+- **`IA_TIMING` (명령어+타이밍)**: 타일 단위 지연/중첩 모델 + 단순 경합  
+- **`CA_HYBRID` (하이브리드 CA)**: 이벤트 기반 실행, DMA/NoC/Bank 경합·스케줄러 포함  
+- **`CA_FULL` (외부 연동 CA, 옵션)**: **MATLAB/Simulink**나 SystemC 등 외부 전문 도구와 연동하여 완전한 Cycle-Accurate 시뮬레이션 구현.
 
 ## 4) NPU-IR 스키마 (확장)
 ```yaml
@@ -87,7 +87,7 @@ scope: tile
 ## 8) CLI/API 예시
 ```bash
 # Tight-coupled 모드 실행
-pyv-npu run model.onnx --level L2 --te-mode tight --report out/tight_test
+pyv-npu run model.onnx --sim_level CA_HYBRID --te-mode tight --report out/tight_test
 ```
 ```python
 from pyv_npu import Simulator
@@ -272,7 +272,7 @@ Copy
 Edit
 # Loose 모드 (MMIO/CSR)
 pyv-npu run model.onnx \
-  --level L2 \
+  --sim_level CA_HYBRID \
   --mode loose \
   --mmio-base 0x40000000 \
   --queue-size 1024 \
@@ -280,7 +280,7 @@ pyv-npu run model.onnx \
 
 # Tight 모드 (Custom ISA)
 pyv-npu run model.onnx \
-  --level L2 \
+  --sim_level CA_HYBRID \
   --mode tight \
   --isa enqcmd,twait,tbar,tstat \
   --report out/tight_run
@@ -295,7 +295,7 @@ sim = Simulator(model="model.onnx", level="L2", mode="loose",
 sim.run()
 
 # Tight
-sim = Simulator(model="model.onnx", level="L2", mode="tight",
+sim = Simulator(model="model.onnx", sim_level="CA_HYBRID", mode="tight",
                 te_isa=["enqcmd","twait","tbar","tstat"])
 sim.run()
 G) 검증 플랜 (요약)
