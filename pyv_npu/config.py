@@ -10,7 +10,7 @@ class SimConfig:
     """PyV-NPU Simulator Configuration, based on PRD v1.1"""
     # Model and execution level
     model: str = ""
-    level: str = "L1"  # L0, L1, L2, L3
+    sim_level: str = "IA_TIMING"  # IA, IA_TIMING, CA_HYBRID, CA_FULL
 
     # Config file
     config_file: str = ""

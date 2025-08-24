@@ -58,9 +58,11 @@ def test_smoke(monkeypatch, mock_onnx_model):
 
     total_cycles = max((it.end_cycle for it in schedule), default=0)
     assert total_cycles > 0
-    # The simple scheduler in L1 mode returns "CPU", "TE", "VE"
+    # The event-driven scheduler (default for IA_TIMING) names engines with an index.
+    # We check that the set of engine types used matches our expectations.
     engines_used = {it.engine for it in schedule}
-    assert engines_used == {"TE", "VE", "CPU"}
+    engine_types_used = {e.rstrip('0123456789') for e in engines_used}
+    assert engine_types_used == {"TE", "VE", "DMA"}
 
 def test_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     # Mock onnx.load to return our fake model
@@ -71,7 +73,7 @@ def test_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     p = map_model_ir_to_npu_program(g)
     
     # Create a SimConfig for L2 simulation
-    config = SimConfig(model=onnx_model_path, level='L2')
+    config = SimConfig(model=onnx_model_path, sim_level='CA_HYBRID')
     
     # Manually run allocator since we are not using the CLI
     allocator = Allocator(config.dram_base_address, config.dram_page_size)
@@ -95,7 +97,7 @@ def test_tight_mode_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     p = map_model_ir_to_npu_program(g, mode='tight')
     
     # Create a SimConfig for L2 simulation in tight mode
-    config = SimConfig(model=onnx_model_path, level='L2', mode='tight')
+    config = SimConfig(model=onnx_model_path, sim_level='CA_HYBRID', mode='tight')
 
     schedule, stats = run(p, config)
     assert stats['total_cycles'] > 0

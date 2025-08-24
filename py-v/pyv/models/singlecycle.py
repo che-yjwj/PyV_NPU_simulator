@@ -3,9 +3,6 @@ from pyv.exception_unit import ExceptionUnit
 from pyv.stages import EXMEM_t, IFID_t, IFStage, IDStage, EXStage, MEMStage, \
     WBStage, BranchUnit
 from pyv.mem import Memory
-from pyv_npu.bridge.mem import NPUControlMemory
-from pyv_npu.config import SimConfig
-from pyv_npu.runtime.scheduler import Scheduler
 from pyv.reg import Regfile
 from pyv.module import Module
 from pyv.models.model import Model
@@ -25,17 +22,11 @@ class SingleCycle(Module):
         self.csr_unit = CSRUnit()
         """RISC-V CSRs"""
 
-        # NPU and Scheduler setup
-        self.npu_config = SimConfig(model="dummy_model", mode='loose')
-        # Scheduler needs a memory reference, which is created below
-        self.npu_scheduler = Scheduler(config=self.npu_config, memory=None)
-        
-        self.mem = NPUControlMemory(8 * 1024, scheduler=self.npu_scheduler)
+        self.mem = Memory(8 * 1024)
         """Main Memory (for both instructions and data)"""
-        # Give scheduler a reference to memory now that it exists
-        self.npu_scheduler.memory = self.mem
 
         self.if_stg = IFStage(self.mem.read_port1)
+
         """Instruction Fetch"""
         self.id_stg = IDStage(self.regf, self.csr_unit)
         """Instruction Decode"""

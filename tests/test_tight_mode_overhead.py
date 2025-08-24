@@ -34,7 +34,7 @@ def test_tight_vs_loose_overhead_comparison(monkeypatch, mock_simple_model):
     model_ir = load_onnx_as_model_ir("dummy_path")
 
     # --- Run in Loose Mode ---
-    config_loose = SimConfig(level='L2', mode='loose')
+    config_loose = SimConfig(sim_level='CA_HYBRID', mode='loose')
     prog_loose = map_model_ir_to_npu_program(model_ir, mode='loose')
     allocator_loose = Allocator(config_loose.dram_base_address, config_loose.dram_page_size)
     allocator_loose.allocate(prog_loose)
@@ -42,7 +42,7 @@ def test_tight_vs_loose_overhead_comparison(monkeypatch, mock_simple_model):
     report_loose = generate_report_json(schedule_loose, config_loose, stats_loose)
 
     # --- Run in Tight Mode ---
-    config_tight = SimConfig(level='L2', mode='tight')
+    config_tight = SimConfig(sim_level='CA_HYBRID', mode='tight')
     prog_tight = map_model_ir_to_npu_program(model_ir, mode='tight')
     allocator_tight = Allocator(config_tight.dram_base_address, config_tight.dram_page_size)
     allocator_tight.allocate(prog_tight)

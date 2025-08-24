@@ -83,7 +83,7 @@ def build_parser():
 
     # Core args (set default=None to allow override from YAML)
     pr.add_argument("model", nargs='?', default=None, help="Path to ONNX model (optional if specified in config)")
-    pr.add_argument("--level", type=str, default=None, choices=["L0", "L1", "L2", "L3"], help="Simulation fidelity level")
+    pr.add_argument("--sim-level", type=str, default=None, dest="sim_level", choices=["IA", "IA_TIMING", "CA_HYBRID", "CA_FULL"], help="Simulation fidelity level (IA, IA_TIMING, CA_HYBRID, CA_FULL)")
     pr.add_argument("--report", type=str, default=None, help="Directory to save simulation reports")
     pr.add_argument("--gantt", type=str, default=None, help="Path to save Gantt chart HTML file")
     pr.add_argument("--ascii-gantt", action="store_true", help="Print an ASCII Gantt chart to the console")
