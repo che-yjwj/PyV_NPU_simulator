@@ -71,7 +71,7 @@ scope: tile
 ## 5) 타이밍/성능 모델
 - **DMA 중첩(Double Buffer)**:  
   `T_tile = max(T_in + T_comp, T_out)`  
-- **자원/경합(L2)**:  
+- **자원/경합(CA_HYBRID)**:  
   Bank 충돌, NoC/DRAM 큐 모델, Token Bucket 기반 대역폭 모델  
 - **스케줄러**: List-sched + CP-prio, Bank-aware 배치
 
@@ -108,9 +108,9 @@ Simulator(model="model.onnx", level="L2", te_mode="tight").run()
 | 타일(M,N,K) | 128,128,64 | GEMM 기준 |
 
 ## 10) 마일스톤
-- **M0**: NPU-IR, L0 end-to-end  
-- **M1**: L1 타일 타이밍 + Bank 모델  
-- **M2**: L2 이벤트 기반 경합 + Cache Coherence  
+- **M0**: NPU-IR, IA end-to-end  
+- **M1**: IA_TIMING 타일 타이밍 + Bank 모델  
+- **M2**: CA_HYBRID 이벤트 기반 경합 + Cache Coherence  
 - **M3**: TC Custom ISA 설계 + MLIR Dialect/Lowering  
 - **M4**: Py-V 연동, Loose/Tight 비교 E2E  
 - **M5**: 회귀세트, 문서화, 튜토리얼
@@ -119,7 +119,7 @@ Simulator(model="model.onnx", level="L2", te_mode="tight").run()
 | 리스크 | 영향 | 대응 |
 |---|---|---|
 | Custom ISA 툴체인 난이도 | 개발 지연 | 초기 `.insn` asm → 후속 LLVM/binutils 확장 |
-| TC ISA 시뮬 오버헤드 | 성능 분석 왜곡 | L2 모델 최적화, L3 보정 |
+| TC ISA 시뮬 오버헤드 | 성능 분석 왜곡 | CA_HYBRID 모델 최적화, CA_FULL 보정 |
 | ISA 호환성 | 표준 충돌 가능 | custom-0~3 opcode 예약 |
 
 ## 12) 블록 다이어그램
@@ -290,7 +290,7 @@ Edit
 from pyv_npu import Simulator
 
 # Loose
-sim = Simulator(model="model.onnx", level="L2", mode="loose",
+sim = Simulator(model="model.onnx", sim_level="IA_TIMING", mode="loose",
                 mmio_base=0x4000_0000, queue_size=1024)
 sim.run()
 

@@ -93,7 +93,7 @@ Event-driven 시뮬레이션은 위의 모든 추상화 수준에서 사용할 �
 - **IA_TIMING**: IA에 이벤트 기반 타이밍 모델을 추가
 - **CA_HYBRID**: 연산부는 CA, 메모리부는 TLM을 사용하는 하이브리드 모델
 
-👉 혹시 원하시면 제가 이 3단계(SimLevel L0~L2) 시뮬레이터 로드맵을 **표와 ASCII 블록 다이어그램**으로 정리해드릴까요?
+👉 혹시 원하시면 제가 이 3단계(IA, IA_TIMING, CA_HYBRID) 시뮬레이터 로드맵을 **표와 ASCII 블록 다이어그램**으로 정리해드릴까요?
 
 ---
 
@@ -146,12 +146,12 @@ ChatGPT:
 ## 4. 결론
 
 - **전체 NPU를 Python으로 CA까지 구현하는 건 비효율적** (속도도 느리고 관리 어려움).
-- 대신 **IA + Event-driven timing (Level 1)**으로 시작하고,특정 연구 주제(예: tile-level bank conflict, pipeline stall 분석)가 필요할 때만 **CA 모델을 부분 적용 (Level 2)**하는 게 현실적입니다.
+- 대신 **IA + Event-driven timing (Level 1)**으로 시작하고,특정 연구 주제(예: tile-level bank conflict, pipeline stall 분석)가 필요할 때만 **CA_HYBRID 모델을 부분 적용**하는 게 현실적입니다.
 - 만약 실제 실리콘 성능 예측까지 하고 싶다면 → 최종적으로 **SystemC / C++ 기반 CA 모델**로 이행하는 게 맞습니다.
 
-👉 개발자께서 지금 진행 중인 **Py-V 기반 NPU 시뮬레이터**라면,Cycle-Accurate full model보다는 **ISA-level + 이벤트 드리븐 latency 모델(Level 1)**이 가장 적절해 보입니다.
+👉 개발자께서 지금 진행 중인 **Py-V 기반 NPU 시뮬레이터**라면,Cycle-Accurate full model보다는 **IA_TIMING(이벤트 드리븐 latency 모델)**이 가장 적절해 보입니다.
 
-혹시 원하시면, 제가 **"Level 1 구조 (IA + Event-driven latency)"**를 구체적으로 어떻게 설계하면 되는지,예를 들어 **DMA / VC / TC 이벤트 스케줄링 로직**을 Python 코드 스켈레톤으로 보여드릴까요?
+혹시 원하시면, 제가 **"IA_TIMING 구조 (IA + Event-driven latency)"**를 구체적으로 어떻게 설계하면 되는지,예를 들어 **DMA / VC / TC 이벤트 스케줄링 로직**을 Python 코드 스켈레톤으로 보여드릴까요?
 
 ---
 

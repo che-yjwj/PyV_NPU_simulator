@@ -6,7 +6,7 @@
 ## A. v0.1 장단점 분석
 
 ### 강점 (Pros)
-- **레벨 기반 개발 로드맵(L0~L3)**: 기능 → 타일 → 이벤트 → 사이클 단위로 정밀도 향상.
+- **레벨 기반 개발 로드맵(IA, IA_TIMING, CA_HYBRID, CA_FULL)**: 기능 → 타일 → 이벤트 → 사이클 단위로 정밀도 향상.
 - **NPU-IR 초안 제시**: LOAD/STORE, GEMM_T, CONV2D_T, ATTN_T, BARRIER/WAIT 등 최소 명세.
 - **메모리/데이터 이동 모델 반영**: SPM(bank), DMA double-buffer, NoC/DRAM 경합 요소 포함.
 - **리포트 아티팩트 정의**: Gantt, 자원 사용률, 병목 Top-N 지표 중심 설계.
@@ -31,7 +31,7 @@
 
 5. **검증 기준 부재**
    - 교차검증 허용 오차, 회귀 커버리지 미정.
-   - **개선**: KPI/AC 정의(L1 오차 ±15% 이내).
+   - **개선**: KPI/AC 정의(IA_TIMING 오차 ±15% 이내).
 
 6. **관측 가능성 부족**
    - 이벤트 로그/카운터 세트 미흡.
@@ -85,6 +85,6 @@ report_dir: out/exp_001
 ---
 
 ## E. KPI / Acceptance Criteria
-- L1-L3 타이밍 오차(MAPE) ≤ ±15% (보정 후)
+- IA_TIMING-CA_FULL 타이밍 오차(MAPE) ≤ ±15% (보정 후)
 - 회귀 테스트 케이스 ≥ 200, 커버리지 ≥ 90%
 - 병목 원인 Top-3 자동 리포트
