@@ -94,6 +94,7 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
     stats = {"dram_collisions": dram_bank_tracker.collisions}
     return schedule, stats
 
+
 def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers):
     best_op = None
     best_op_queue = None
@@ -199,33 +200,33 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
 
     elif op.opcode in ("MatMul", "Conv"):
-        if len(op.inputs) < 2 or len(op.outputs) < 1: return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info
-        tensor_a, tensor_b, tensor_c = op.inputs[0], op.inputs[1], op.outputs[0]
-        bytes_a, bytes_b, bytes_c = (t.num_elements * DTYPE_MAP.get(t.dtype, 1) for t in [tensor_a, tensor_b, tensor_c])
-
-        load_a_start, load_a_dur, reason_a, ch_a, b_a = dram_banks.probe_transfer(start_cycle, tensor_a.address, bytes_a)
-        load_b_start, load_b_dur, reason_b, ch_b, b_b = dram_banks.probe_transfer(load_a_start + load_a_dur, tensor_b.address, bytes_b)
-        inputs_ready_cycle = load_b_start + load_b_dur
-        stall_reason = reason_a if reason_a != "NONE" else reason_b
-
-        breakdown = calculate_systolic_array_cycles(op.args.get('tile_m', 128), op.args.get('tile_n', 128), op.args.get('tile_k', 128), config.systolic_array_height, config.systolic_array_width)
+        # Inputs are assumed to be in SPM, so we only model the compute time.
+        # LOAD and STORE operations are now explicit in the NPU program.
+        breakdown = calculate_systolic_array_cycles(
+            op.args.get('tile_m', 128), 
+            op.args.get('tile_n', 128), 
+            op.args.get('tile_k', 128), 
+            config.systolic_array_height, 
+            config.systolic_array_width
+        )
         compute_cycles = breakdown['total']
+        
+        # Find the earliest time the SPM banks are available for this compute op
         num_banks_needed = config.spm_banks // 2
-        compute_start_cycle, chosen_banks = spm.probe_earliest_free_slot(inputs_ready_cycle, compute_cycles, num_banks_needed)
-        if compute_start_cycle > inputs_ready_cycle: stall_reason = "RESOURCE_SPM"
+        compute_start_cycle, chosen_banks = spm.probe_earliest_free_slot(start_cycle, compute_cycles, num_banks_needed)
+        
+        stall_reason = "NONE"
+        if compute_start_cycle > start_cycle:
+            stall_reason = "RESOURCE_SPM"
+            
         compute_end_cycle = compute_start_cycle + compute_cycles
-        store_start, store_dur, reason_c, ch_c, b_c = dram_banks.probe_transfer(compute_end_cycle, tensor_c.address, bytes_c)
-        if reason_c != "NONE": stall_reason = reason_c
 
-        booking_info.dram_transfers.extend([
-            {'channel_id': ch_a, 'bank_id': b_a, 'start_cycle': load_a_start, 'duration': load_a_dur},
-            {'channel_id': ch_b, 'bank_id': b_b, 'start_cycle': load_b_start, 'duration': load_b_dur},
-            {'channel_id': ch_c, 'bank_id': b_c, 'start_cycle': store_start, 'duration': store_dur}
-        ])
+        # Book the SPM slot for the duration of the computation
         booking_info.spm_slots.append({'cycle': compute_start_cycle, 'duration': compute_cycles, 'chosen_banks': chosen_banks})
-        return compute_start_cycle, store_start + store_dur, stall_reason, breakdown, booking_info
+        
+        return compute_start_cycle, compute_end_cycle, stall_reason, breakdown, booking_info
 
-    elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
+    elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm", "Erf"):
         num_elements = op.args.get('num_elements', 2048)
         compute_cycles = max(5, num_elements // 16)
         num_banks_needed = 2
@@ -243,7 +244,7 @@ def get_engine_for_op(op: NPUOp, mode: str = 'loose') -> str:
         return "CPU"
     if op.opcode in ("MatMul", "Conv"):
         return "TC"
-    elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
+    elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm", "Erf"):
         return "VC"
     else:
         return "DMA"
@@ -255,7 +256,7 @@ def simple_greedy_schedule(p: Program) -> List[ScheduleItem]:
         if op.opcode in ("MatMul", "Conv"):
             dur = 100
             eng = "TC"
-        elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
+        elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm", "Erf"):
             dur = 20
             eng = "VC"
         else:
