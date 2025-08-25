@@ -26,8 +26,8 @@
 |                                      v                |
 |                        +----------------------------+ |
 |                        | NPU Execution Engine       | |
-|                        | - Tensor Engine (TE)       | |
-|                        | - Vector Engine (VE)       | |
+|                        | - Tensor Core (TC)       | |
+|                        | - Vector Core (VC)       | |
 |                        | - Custom Ops (GELU, LN...) | |
 |                        +----------------------------+ |
 |                                                         |
@@ -53,8 +53,8 @@
 - **Reorder Buffer (ROB)**: out-of-order 실행 지원, retire 시점 기록
 
 ### (3) Execution Engine
-- Tensor Engine (TE): MatMul, Conv 등 텐서 연산 처리
-- Vector Engine (VE): SIMD 연산, DyT/Attention 지원
+- Tensor Core (TC): MatMul, Conv 등 텐서 연산 처리
+- Vector Core (VC): SIMD 연산, DyT/Attention 지원
 - Custom Ops: GELU, LayerNorm, Attention 등 고급 연산
 - Shared Memory 및 Bank Conflict 모델링
 

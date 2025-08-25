@@ -34,7 +34,7 @@ End-to-End 시뮬레이션을 구현하고자 합니다.
     *   `ir/`: ONNX 모델을 내부 `Model IR`로 변환
     *   `compiler/`: `Model IR`을 `NPU Program`으로 매핑 (loose/tight 모드 지원)
     *   `isa/`: `NPU Program` 및 RISC-V 확장 ISA 정의
-    *   `runtime/`: 스케줄러, 시뮬레이터, 리소스 모델링 (VE/TE 코스트, 메모리, 버스)
+    *   `runtime/`: 스케줄러, 시뮬레이터, 리소스 모델링 (VC/TC 코스트, 메모리, 버스)
     *   `bridge/`: 메모리 브릿지
     *   `utils/`: 로깅, 리포트, 시각화
     *   `config.py`: 시뮬레이션 파라미터 설정
@@ -47,7 +47,7 @@ End-to-End 시뮬레이션을 구현하고자 합니다.
 계층적 설정 로딩이 구현되어 있습니다.
 *   **컴파일러**: ONNX → `Model_IR` → `NPU_Program` 파이프라인이 명확하며, `mapper.py`는 `loose`/`tight` 모드에
 따른 프로그램 생성을 정확히 구현합니다.
-    *   **완료된 작업**: `DRAM 채널/뱅크 매핑 정책` (`M-02`) 및 `TE 코스트 모델 v1` (`C-01`) 구현을 위해
+    *   **완료된 작업**: `DRAM 채널/뱅크 매핑 정책` (`M-02`) 및 `TC 코스트 모델 v1` (`C-01`) 구현을 위해
 컴파일러에 메모리 할당 단계가 추가되었습니다.
 *   **런타임**:
     *   `simulator.py`는 설정된 `sim_level`에 따라 `IA`(단순) 또는 `IA_TIMING`/`CA_HYBRID`(이벤트 기반) 스케줄러를 선택합니다.
@@ -76,7 +76,7 @@ stall 정보가 포함되며 간트 차트에 시각화됩니다.
     *   리포팅 기능이 자동화되어 시뮬레이션 결과를 직관적으로 파악할 수 있습니다.
     *   `loose` 및 `tight` 모드 지원을 위한 기본적인 구조가 잘 잡혀 있습니다.
 *   **보완 포인트 및 향후 계획**:
-    *   **코스트 모델 정교화**: TE/VE 코스트 모델 (타일-사이즈, systolic fill/drain, 벡터 길이 등) 및 메모리/버스
+    *   **코스트 모델 정교화**: TC/VC 코스트 모델 (타일-사이즈, systolic fill/drain, 벡터 길이 등) 및 메모리/버스
 모델 (SPM bank/port 수, DMA burst, NoC 홉 딜레이, DRAM 채널/페이지 정책)을 고도화해야 합니다. (EPIC-COST)
     *   **컴파일러 패스 연결**: 타일링 결정, 연산 Fusion, QAT/INT8 매핑 등 최적화 패스들이 현재 이름만 있거나
 스텁 상태이므로, 실제 로직을 구현하고 연결해야 합니다. (EPIC-COMP)
@@ -241,7 +241,7 @@ GitHub Actions를 통해 CI(`ci.yml`) 및 문서 빌드(`docs.yml`)가 자동화
 2.  **Vector Extension (V) 활용 여부**:
     *   **아니요, 표준 RISC-V Vector Extension (RVV) opcode space를
 직접적으로 활용하고 있지는 않습니다.**
-    *   하지만 시뮬레이터는 `Vector Engine (VE)`을 모델링하고 있으며,
+    *   하지만 시뮬레이터는 `Vector Core (VE)`을 모델링하고 있으며,
 `docs/code_review.md` 및 `docs/kanban_board.md`에서 `VE 코스트 모델`의
 정교화가 보완 포인트 및 백로그(`C-02`)로 언급되어 있습니다. 이 작업은 RVV와
 유사한 제약(벡터 길이, issue rate)을 반영하여 element-wise 및 Reduce 연산의
@@ -258,5 +258,5 @@ GitHub Actions를 통해 CI(`ci.yml`) 및 문서 빌드(`docs.yml`)가 자동화
 
 PRD(제품 요구사항 문서)에 따르면 `CA_FULL` 사이클-정확 시뮬레이션이 옵션으로
 제시되어 있지만, 현재 구현된 핵심 기능은 `CA_HYBRID` 수준이며, 더 정교한 사이클-정확
-시뮬레이션을 위한 TE/VE 코스트 모델 및 메모리/버스 모델 등은 '보완
+시뮬레이션을 위한 TC/VC 코스트 모델 및 메모리/버스 모델 등은 '보완
 포인트'로 남아있습니다.

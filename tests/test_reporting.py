@@ -23,7 +23,7 @@ def sample_schedule():
 @pytest.fixture
 def sample_config():
     """Provides a sample SimConfig."""
-    return SimConfig(model="test", te=1, ve=1, dma_channels=1)
+    return SimConfig(model="test", tc=1, vc=1, dma_channels=1)
 
 def test_generate_report_json(sample_schedule, sample_config):
     """Tests the creation of the JSON report, including cycle breakdown."""

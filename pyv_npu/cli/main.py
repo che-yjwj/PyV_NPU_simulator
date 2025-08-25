@@ -98,7 +98,7 @@ def build_parser():
 
     # Tight mode args
     tight_group = pr.add_argument_group('Tight-coupled Mode Arguments')
-    tight_group.add_argument("--isa", type=str, default=None, help="Comma-separated list of enabled TE custom instructions")
+    tight_group.add_argument("--isa", type=str, default=None, help="Comma-separated list of enabled TC custom instructions")
 
     pr.set_defaults(func=cmd_run)
 

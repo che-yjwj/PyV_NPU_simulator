@@ -2,24 +2,24 @@
 
 PyV-NPU is a cycle-aware NPU (Neural Processing Unit) simulator built on a RISC-V foundation. It is designed to transform ONNX/MLIR inputs into a dedicated NPU-IR (Intermediate Representation), schedule operations, and perform detailed, cycle-level analysis of timing and resource utilization. The project integrates a RISC-V frontend (based on LLVM/MLIR, ONNX conversion, and Custom ISA) with a backend that models the NPU, memory hierarchy, DMA, NoC, and cache coherence.
 
-A key feature is the support for a tightly-coupled custom ISA for the Tensor Engine (TE), enabling low-latency kernel submission without CPU intervention.
+A key feature is the support for a tightly-coupled custom ISA for the Tensor Engine (TC), enabling low-latency kernel submission without CPU intervention.
 
 ## Core Features
 
 - **Multiple Simulation Levels**:
-    - **L0 (Functional)**: Fast functional verification of ONNX to NPU-IR conversion.
-    - **L1 (Tile-Time)**: Models tile-level latency and overlap with simple contention.
-    - **L2 (Event/Resource)**: Event-driven simulation with detailed contention modeling for DMA, NoC, and memory banks.
-    - **L3 (Cycle-Accurate)**: Optional, high-fidelity verification using Verilator co-simulation for specific kernels.
+    - **IA (Instruction Accurate)**: Fast functional verification of the instruction stream.
+    - **IA_TIMING (Instruction Accurate with Timing)**: Event-driven simulation with detailed contention modeling for DMA, NoC, and memory banks. This is the primary mode for performance analysis.
+    - **CA_HYBRID (Cycle-Accurate Hybrid)**: High-fidelity simulation for key components in a hybrid model.
+    - **CA_FULL (Cycle-Accurate Full)**: Optional, full-system cycle-accurate verification, potentially using co-simulation.
 - **Dual RISC-V Integration Modes**:
     - **Loose-coupled**: Standard MMIO-based doorbell mechanism for communication.
-    - **Tight-coupled**: Custom ISA extensions (`ENQCMD_T`, `TWAIT`, etc.) for direct, low-latency TE control.
+    - **Tight-coupled**: Custom ISA extensions (`ENQCMD_T`, `TWAIT`, etc.) for direct, low-latency TC control.
 - **Comprehensive Performance Analysis**:
     - Generates detailed reports (HTML/SVG/CSV), including Gantt charts, resource utilization graphs, and Roofline models.
     - Identifies top performance bottlenecks.
     - Compares the efficiency of Loose vs. Tight coupling modes.
 - **Flexible Architecture Modeling**:
-    - Configurable parameters for TE/VE cores, SPM size, memory banks, DMA channels, and NoC/DRAM bandwidth.
+    - Configurable parameters for TC/VC cores, SPM size, memory banks, DMA channels, and NoC/DRAM bandwidth.
     - Support for various data precisions (FP16, BF16, FP8, INT8).
 
 ## Architecture Overview
@@ -57,8 +57,8 @@ App/Runtime/API ───────► │  pyv_npu.Runtime                   
 │    │   │  IR Queue | CP-prio | Bank-aware         │  │ per-chan q | DBB | Prefetch │               │ │
 │    │   └──────────────────────────────────────────┘  └──────────────────────────────┘               │ │
 │    │   ┌────────────── SPM (banked) ───────────────┐  ┌──────────── Compute ─────────┐             │ │
-│    │   │ banks | ping-pong | arbiter | counters    │  │  TE array (GEMM/CONV/ATTN)   │             │ │
-│    │   └───────────────────────────────────────────┘  │  VE array (LN/GELU/ELTWISE)  │             │ │
+│    │   │ banks | ping-pong | arbiter | counters    │  │  TC array (GEMM/CONV/ATTN)   │             │ │
+│    │   └───────────────────────────────────────────┘  │  VC array (LN/GELU/ELTWISE)  │             │ │
 │    │                                                  └───────────────────────────────┘             │ │
 │    └────────────────────────────────────────────────────────────────────────────────────────────────┘ │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -72,7 +72,7 @@ The simulator provides a powerful command-line interface for running simulations
 **Loose-coupled Mode (MMIO/CSR):**
 ```bash
 pyv-npu run model.onnx \
-  --level L2 \
+  --sim-level IA_TIMING \
   --mode loose \
   --mmio-base 0x40000000 \
   --queue-size 1024 \
@@ -82,7 +82,7 @@ pyv-npu run model.onnx \
 **Tight-coupled Mode (Custom ISA):**
 ```bash
 pyv-npu run model.onnx \
-  --level L2 \
+  --sim-level IA_TIMING \
   --mode tight \
   --isa enqcmd,twait,tbar,tstat \
   --report out/tight_run
@@ -98,7 +98,7 @@ from pyv_npu import Simulator
 # Loose-coupled mode
 sim_loose = Simulator(
     model="model.onnx",
-    level="L2",
+    sim_level="IA_TIMING",
     mode="loose",
     mmio_base=0x40000000,
     queue_size=1024
@@ -108,12 +108,13 @@ sim_loose.run()
 # Tight-coupled mode
 sim_tight = Simulator(
     model="model.onnx",
-    level="L2",
+    sim_level="IA_TIMING",
     mode="tight",
     te_isa=["enqcmd", "twait", "tbar", "tstat"]
 )
 sim_tight.run()
 ```
+
 
 ## Default Configuration
 
@@ -121,8 +122,8 @@ The simulator starts with a set of default hardware parameters, which can be cus
 
 | Parameter         | Default Value | Description                               |
 |-------------------|---------------|-------------------------------------------|
-| TE Cores          | 2             | Tensor Engines for heavy computation      |
-| VE Cores          | 4             | Vector Engines for element-wise ops       |
+| TC Cores          | 2             | Tensor Cores for heavy computation      |
+| VC Cores          | 4             | Vector Cores for element-wise ops       |
 | SPM Capacity      | 2 MiB         | Banked Scratchpad Memory                  |
 | SPM Banks         | 8             | Number of banks for memory conflict model |
 | DMA Channels      | 2             | To support double-buffering               |
@@ -136,7 +137,7 @@ The simulator starts with a set of default hardware parameters, which can be cus
 - `pyv_npu/ir`: Model IR (Intermediate Representation) and ONNX importer.
 - `pyv_npu/isa`: NPU-IR operations and RISC-V custom instruction encodings.
 - `pyv_npu/compiler`: Compiler passes (tiling, fusion, quantization) and mapper.
-- `pyv_npu/runtime`: Scheduler, simulator core, memory models, and execution units (TE/VE).
+- `pyv_npu/runtime`: Scheduler, simulator core, memory models, and execution units (TC/VC).
 - `pyv_npu/cli`: Command-line interface entry point.
 - `examples`: Example models and scripts.
 - `tests`: Unit and integration tests.
@@ -201,7 +202,7 @@ The simulator starts with a set of default hardware parameters, which can be cus
        | runtime/simulator.py  | (run() function)
        +-----------------------+
                  |
-                 +----(if level=='L2')----> +---------------------------+
+                 +----(if sim_level=='IA_TIMING')----> +---------------------------+
                  |
                  |                          | runtime/scheduler.py      |
                  |                          | (event_driven_schedule)   |
@@ -217,7 +218,7 @@ The simulator starts with a set of default hardware parameters, which can be cus
                  |                             | - BankTracker      |
                  |                             +--------------------+      +----------------+
                  |                                                                    
-                 +----(if level=='L0/L1')---> +---------------------------+
+                 +----(if sim_level=='IA')---> +---------------------------+
                                             | runtime/scheduler.py      |
                                             | (simple_greedy_schedule)  |
                                             +---------------------------+

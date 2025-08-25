@@ -32,8 +32,8 @@ def generate_report_json(schedule: List[ScheduleItem], config: SimConfig, stats:
 
     total_cycles = max(item.end_cycle for item in schedule) if schedule else 0
     timeline = []
-    engine_usage = {f"TE{i}": 0 for i in range(config.te)}
-    engine_usage.update({f"VE{i}": 0 for i in range(config.ve)})
+    engine_usage = {f"TC{i}": 0 for i in range(config.tc)}
+    engine_usage.update({f"VC{i}": 0 for i in range(config.vc)})
     engine_usage.update({f"DMA{i}": 0 for i in range(config.dma_channels)})
     engine_usage.update({"CPU0": 0})
 
@@ -72,8 +72,8 @@ def generate_report_json(schedule: List[ScheduleItem], config: SimConfig, stats:
         utilization_abs[base_eng] += usage
 
     utilization_perc = {}
-    if config.te > 0: utilization_perc['TE_utilization'] = f"{(utilization_abs.get('TE', 0) / (total_cycles * config.te)):.2%}"
-    if config.ve > 0: utilization_perc['VE_utilization'] = f"{(utilization_abs.get('VE', 0) / (total_cycles * config.ve)):.2%}"
+    if config.tc > 0: utilization_perc['TC_utilization'] = f"{(utilization_abs.get('TC', 0) / (total_cycles * config.tc)):.2%}"
+    if config.vc > 0: utilization_perc['VC_utilization'] = f"{(utilization_abs.get('VC', 0) / (total_cycles * config.vc)):.2%}"
     if config.dma_channels > 0: utilization_perc['DMA_utilization'] = f"{(utilization_abs.get('DMA', 0) / (total_cycles * config.dma_channels)):.2%}"
     if utilization_abs.get('CPU', 0) > 0: utilization_perc['CPU_utilization'] = f"{(utilization_abs.get('CPU', 0) / total_cycles):.2%}"
 

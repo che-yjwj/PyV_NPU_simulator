@@ -28,7 +28,7 @@ ChatGPT:
 ### NPU에서의 역할
 
 1. **입출력 데이터 임시 저장**
-    - NPU 연산 유닛(TE, VE 등)으로 들어오는 입력 텐서(Input Tensor)를 저장.
+    - NPU 연산 유닛(TC, VC 등)으로 들어오는 입력 텐서(Input Tensor)를 저장.
     - 연산 완료 후 출력 데이터를 DRAM 혹은 다음 연산 유닛으로 전달하기 전에 잠시 저장.
 2. **연산 파이프라인 안정화**
     - 연산 유닛 속도와 메모리 접근 속도의 차이를 완충.
@@ -118,7 +118,7 @@ ChatGPT:
 NPU 내부는 일반적으로 다음과 같이 구성됩니다:
 
 ```
-[DRAM] ←→ [DMA / Memory Controller] ←→ [Input/Output Buffer] ←→ [Compute Engine (PE/TE/VE)] ←→ [Output Buffer] ←→ [DRAM]
+[DRAM] ←→ [DMA / Memory Controller] ←→ [Input/Output Buffer] ←→ [Compute Engine (PE/TC/VC)] ←→ [Output Buffer] ←→ [DRAM]
 ```
 
 - **Input Buffer**
@@ -203,7 +203,7 @@ ChatGPT:
     └────────┬────────┘
              │
     ┌────────┴────────┐
-    │ Compute Engine   │  ← PE/TE/VE: 연산 수행
+    │ Compute Engine   │  ← PE/TC/VC: 연산 수행
     └────────┬────────┘
              │
              ▼
@@ -289,7 +289,7 @@ ChatGPT:
                │
                ▼
        ┌───────────────┐
-       │ Compute Engine │  ← PE/TE/VE 연산
+       │ Compute Engine │  ← PE/TC/VC 연산
        └──────┬────────┘
                │
                ▼

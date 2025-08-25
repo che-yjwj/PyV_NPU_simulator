@@ -7,7 +7,7 @@ def test_config_yaml_loading(tmp_path: Path):
     """Tests that config is loaded correctly from a YAML file."""
     yaml_content = {
         'sim_level': 'CA_HYBRID',
-        'te': 16,
+        'tc': 16,
         'mode': 'tight'
     }
     yaml_file = tmp_path / "test.yaml"
@@ -15,19 +15,19 @@ def test_config_yaml_loading(tmp_path: Path):
         yaml.dump(yaml_content, f)
 
     # Simulate args parsed from CLI, where only config and model are provided
-    args = argparse.Namespace(config=str(yaml_file), model="test.onnx", sim_level=None, te=None)
+    args = argparse.Namespace(config=str(yaml_file), model="test.onnx", sim_level=None, tc=None)
 
     config = SimConfig.from_args(args)
 
     assert config.sim_level == 'CA_HYBRID'
-    assert config.te == 16
+    assert config.tc == 16
     assert config.mode == 'tight'
 
 def test_config_cli_override(tmp_path: Path):
     """Tests that CLI arguments override YAML settings."""
     yaml_content = {
         'sim_level': 'CA_HYBRID',
-        'te': 16,
+        'tc': 16,
         'mode': 'tight'
     }
     yaml_file = tmp_path / "test.yaml"
@@ -39,11 +39,11 @@ def test_config_cli_override(tmp_path: Path):
         config=str(yaml_file), 
         model="test.onnx", 
         sim_level="CA_FULL", # Override
-        te=8                 # Override
+        tc=8                 # Override
     )
 
     config = SimConfig.from_args(args)
 
     assert config.sim_level == 'CA_FULL' # Overridden value
-    assert config.te == 8                # Overridden value
+    assert config.tc == 8                # Overridden value
     assert config.mode == 'tight'        # Value from YAML

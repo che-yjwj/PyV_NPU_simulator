@@ -87,7 +87,7 @@ Event-driven 시뮬레이션은 위의 모든 추상화 수준에서 사용할 �
 
 이렇게 단계적으로 심화해가는 것이 일반적입니다.
 
-창훈님이 구상 중인 **Py-V 기반 NPU 시뮬레이터**에도 이 레벨들을 점진적으로 적용할 수 있습니다.
+개발자께서 구상 중인 **Py-V 기반 NPU 시뮬레이터**에도 이 레벨들을 점진적으로 적용할 수 있습니다.
 
 - **IA**: 명령어 단위 실행
 - **IA_TIMING**: IA에 이벤트 기반 타이밍 모델을 추가
@@ -149,9 +149,9 @@ ChatGPT:
 - 대신 **IA + Event-driven timing (Level 1)**으로 시작하고,특정 연구 주제(예: tile-level bank conflict, pipeline stall 분석)가 필요할 때만 **CA 모델을 부분 적용 (Level 2)**하는 게 현실적입니다.
 - 만약 실제 실리콘 성능 예측까지 하고 싶다면 → 최종적으로 **SystemC / C++ 기반 CA 모델**로 이행하는 게 맞습니다.
 
-👉 창훈님이 지금 진행 중인 **Py-V 기반 NPU 시뮬레이터**라면,Cycle-Accurate full model보다는 **ISA-level + 이벤트 드리븐 latency 모델(Level 1)**이 가장 적절해 보입니다.
+👉 개발자께서 지금 진행 중인 **Py-V 기반 NPU 시뮬레이터**라면,Cycle-Accurate full model보다는 **ISA-level + 이벤트 드리븐 latency 모델(Level 1)**이 가장 적절해 보입니다.
 
-혹시 원하시면, 제가 **"Level 1 구조 (IA + Event-driven latency)"**를 구체적으로 어떻게 설계하면 되는지,예를 들어 **DMA / VE / TE 이벤트 스케줄링 로직**을 Python 코드 스켈레톤으로 보여드릴까요?
+혹시 원하시면, 제가 **"Level 1 구조 (IA + Event-driven latency)"**를 구체적으로 어떻게 설계하면 되는지,예를 들어 **DMA / VC / TC 이벤트 스케줄링 로직**을 Python 코드 스켈레톤으로 보여드릴까요?
 
 ---
 
@@ -197,7 +197,7 @@ ChatGPT:
 ## 2. 적합한 사용 시나리오
 
 - **Cycle-Accurate 파이프라인 검증**
-    - 예: Tensor Engine 파이프라인 스테이지, shared memory access latency, VE bank conflict
+    - 예: Tensor Core 파이프라인 스테이지, shared memory access latency, VE bank conflict
 - **SoC-level 성능 모델링**
     - 예: CPU ↔ NPU ↔ DRAM 사이의 AXI 트랜잭션 시뮬레이션
 - **HW/SW 인터페이스 검증**
@@ -218,12 +218,12 @@ ChatGPT:
 - Simulink(블록 모델)로 구조-level bottleneck 분석
 - SystemC/C++로 최종 CA + 성능 예측
 
-👉 창훈님 상황에서는,
+👉 개발자님 상황에서는,
 
 - 지금 Py-V 기반 NPU 시뮬레이터로 **IA + Event-driven latency**까지 하고,
-- 이후 **Simulink로 tile-level pipeline 모델**을 만들면NPU 내부 **Tensor Engine/Vector Engine의 cycle bottleneck**을 시각적으로 분석할 수 있어 연구에 매우 효과적일 것 같습니다.
+- 이후 **Simulink로 tile-level pipeline 모델**을 만들면NPU 내부 **Tensor Core/Vector Core의 cycle bottleneck**을 시각적으로 분석할 수 있어 연구에 매우 효과적일 것 같습니다.
 
-혹시 원하시면, 제가 **“Simulink 기반 NPU Cycle-Accurate 모델” 블록 다이어그램 예시 (ASCII)**를 그려드릴까요? (예: Instruction Queue → Decode → TE Pipeline → VE Pipeline → Shared Memory Arbiter → DRAM)
+혹시 원하시면, 제가 **“Simulink 기반 NPU Cycle-Accurate 모델” 블록 다이어그램 예시 (ASCII)**를 그려드릴까요? (예: Instruction Queue → Decode → TC Pipeline → VC Pipeline → Shared Memory Arbiter → DRAM)
 
 ---
 
@@ -258,7 +258,7 @@ ChatGPT:
 - **혼합 정확도 유지**:
     - Simulink는 이벤트/타이밍 (cycle accurate scheduling)만 처리
     - GPU는 계산 결과만 리턴
-- **HW 근접성 강화**: 실제 silicon에서 Tensor Engine이 GPU와 유사한 병렬 구조 → 실험 결과가 더 현실적
+- **HW 근접성 강화**: 실제 silicon에서 Tensor Core이 GPU와 유사한 병렬 구조 → 실험 결과가 더 현실적
 
 ## 3. 단점 & 고려사항
 
@@ -363,7 +363,7 @@ ChatGPT:
 
 ### 적합 시나리오
 
-- Tensor Engine/Vector Engine 파이프라인 분석
+- Tensor Core/Vector Core 파이프라인 분석
 - Shared memory bank conflict, 버스 contention
 - CPU-NPU-DRAM 인터페이스 타이밍 검증
 
@@ -406,11 +406,11 @@ ChatGPT:
             |                        |
             v                        v
    +----------------+        +----------------------+
-   | Tensor Engine  | <----> | Shared Memory Arbiter|
+   | Tensor Core  | <----> | Shared Memory Arbiter|
    +----------------+        +----------------------+
             |
    +----------------+
-   | Vector Engine  |
+   | Vector Core  |
    +----------------+
             |
    +----------------+
@@ -419,7 +419,7 @@ ChatGPT:
 ```
 
 - **Event Scheduler**: DMA 완료, 연산 종료, 버스 점유 해제 등 이벤트 관리
-- **Tensor/Vector Engine**:
+- **Tensor/Vector Core**:
     - **IA_TIMING**: latency 모델 기반 실행
     - **CA_HYBRID**: 부분 CA (pipeline stage 반영)
     - GPU offload 시: 실제 연산 결과+latency 반환
@@ -433,7 +433,7 @@ ChatGPT:
 
 👉 이렇게 정리된 PRD는 **NPU 시뮬레이터 설계 단계별 진행 전략 + Simulink/GPU 활용 방안**을 명확히 정의합니다.
 
-창훈님, 혹시 이 문서를 **PDF 형태로 다운로드**할 수 있도록 정리해드릴까요?
+개발자님, 혹시 이 문서를 **PDF 형태로 다운로드**할 수 있도록 정리해드릴까요?
 
 ---
 
@@ -466,7 +466,7 @@ ChatGPT:
 - **정의**: L1 캐시(코어 근처의 작은 캐시) 뒤에 위치한 **중간 레벨 캐시**.
     - L1 캐시보다 **용량은 크고, 속도는 느리며**, DRAM보다는 훨씬 빠름.
     - 일반적으로 **수십 KB~수 MB** 정도 크기.
-    - 다수의 코어(NPU 코어, SIMD 엔진, Tensor Engine 등)가 **공유(shared cache)**하는 경우가 많음.
+    - 다수의 코어(NPU 코어, SIMD 엔진, Tensor Core 등)가 **공유(shared cache)**하는 경우가 많음.
 
 ## 📌 L2 캐시 도입의 장점
 
@@ -515,7 +515,7 @@ ChatGPT:
 - NPU에서는 경우에 따라 **scratchpad vs L2 cache**를 선택하거나 **하이브리드 구조**를 사용.
 - 특히, **AI 가속기 특화 SoC**에서는 CPU/GPU와 일관성 있게 연결된 **공유 L2 캐시** 구조가 점점 더 많아지고 있음.
 
-👉 창훈님께 질문: 지금 구상하시는 NPU는 **standalone형 NPU (scratchpad 기반)**인지, 아니면 **CPU/GPU와 tightly-coupled 구조 (shared L2 활용)**인지요? 그거에 따라 L2 cache 도입 여부의 판단이 달라질 수 있습니다.
+👉 개발자께 질문: 지금 구상하시는 NPU는 **standalone형 NPU (scratchpad 기반)**인지, 아니면 **CPU/GPU와 tightly-coupled 구조 (shared L2 활용)**인지요? 그거에 따라 L2 cache 도입 여부의 판단이 달라질 수 있습니다.
 
 ---
 
@@ -579,7 +579,7 @@ ChatGPT:
 
 👉 정리하면,**Standalone형 NPU**는 CPU 메모리 계층과 분리되어 있고, coherence 유지를 피하기 위해 **scratchpad 기반**이 주류입니다. 반대로 **SoC tightly-coupled NPU**에서는 CPU와 캐시 일관성을 유지해야 하므로 **L2 cache 공유형** 구조가 많이 쓰입니다.
 
-창훈님 연구에서는 **Py-V 기반 시뮬레이터**를 scratchpad 기반으로 먼저 설계해보고, 이후 tight-coupled + L2 cache 공유 버전으로 확장 비교하는 것도 흥미로운 실험이 될 수 있을 것 같습니다.
+개발자님 연구에서는 **Py-V 기반 시뮬레이터**를 scratchpad 기반으로 먼저 설계해보고, 이후 tight-coupled + L2 cache 공유 버전으로 확장 비교하는 것도 흥미로운 실험이 될 수 있을 것 같습니다.
 
 혹시 제가 정리해서 **Scratchpad 기반 NPU와 Cache 기반 NPU 아키텍처 도식화**를 만들어드릴까요?
 
@@ -624,7 +624,7 @@ ChatGPT:
 - 모바일 AP, 자동차용 SoC, IoT용 NPU 등에서 많이 쓰임.
 - 반면, 서버급 NPU/GPU(예: NVIDIA H100, Habana Gaudi)는 보통 **loosely-coupled (PCIe, CXL, NVLink)** 구조를 사용.
 
-창훈님이 구상하는 **RISC-V + Py-V 기반 시뮬레이터**라면, tightly-coupled 구조를 가정하면 **확장명령어 ↔ NPU 실행 엔진 ↔ 공유 L2 캐시**까지 모델링하는 게 타당할 겁니다.
+개발자께서 구상하는 **RISC-V + Py-V 기반 시뮬레이터**라면, tightly-coupled 구조를 가정하면 **확장명령어 ↔ NPU 실행 엔진 ↔ 공유 L2 캐시**까지 모델링하는 게 타당할 겁니다.
 
 👉 혹시 제가 **ASCII 구조도**로 CPU+NPU tightly-coupled (공유 L2 캐시) vs loosely-coupled (DMA 기반) 비교 그림을 그려드릴까요?
 
@@ -688,7 +688,7 @@ CPU ---- L2 Cache ---- DRAM
 - **Scratchpad 기반**: 성능 최적화 + deterministic, 하지만 SW 복잡. (임베디드/전용 SoC 선호)
 - **Cache 기반**: SW 친화적 + 유연, 하지만 HW 복잡 + 자원 경쟁. (범용 CPU+NPU 통합 구조에 적합)
 
-👉 창훈님이 **RISC-V Py-V 시뮬레이터**에 반영한다면,
+👉 개발자께서 **RISC-V Py-V 시뮬레이터**에 반영한다면,
 
 - 초기 프로토타입: **Scratchpad 기반 (명시적 load/store 모델링)**이 단순하고 검증하기 좋습니다.
 - 확장 단계: **Cache 기반 (coherent 인터커넥트 + L2 공유)**을 넣으면, 실제 SoC에 가까운 모델링 가능.
@@ -761,7 +761,7 @@ ChatGPT:
 - **Tightly-coupled**: SW 편리, HW 복잡 (coherency + contention)
 - **Loosely-coupled**: HW 단순, SW 부담 (DMA 관리 필요)
 
-창훈님, 이 ASCII 그림을 **Py-V 시뮬레이터 문서화**에 바로 넣을 수 있게 더 체계적인 **Block Diagram 스타일 (예: pipeline 흐름 포함)**으로 변환해드릴까요?
+개발자님, 이 ASCII 그림을 **Py-V 시뮬레이터 문서화**에 바로 넣을 수 있게 더 체계적인 **Block Diagram 스타일 (예: pipeline 흐름 포함)**으로 변환해드릴까요?
 
 ---
 
@@ -819,7 +819,7 @@ ChatGPT:
 - **latency, bandwidth, arbitration**을 각각 독립 블록으로 모델링 가능
 - 나중에 **Cycle-Accurate → SystemC Co-sim**으로 전환하기 쉽습니다
 
-👉 창훈님, 제가 지금 두 구조를 **Simulink-style 블록 다이어그램 (예: MATLAB Simulink 그림)**으로 직접 그려드릴까요?(블록 연결까지 시각적으로 표현된 그림으로)
+👉 개발자님, 제가 지금 두 구조를 **Simulink-style 블록 다이어그램 (예: MATLAB Simulink 그림)**으로 직접 그려드릴까요?(블록 연결까지 시각적으로 표현된 그림으로)
 
 ---
 
@@ -878,7 +878,7 @@ ChatGPT:
 - **일반 CPU에서는 L1이 최상위 캐시**라고 보지만,
 - **특정 마이크로아키텍처(NPU/CPU/GPU)** 에서는 L0 캐시 또는 µOP 캐시를 넣어 **프론트엔드 병목 해소**를 위해 사용합니다.
 
-창훈님이 구상하는 **NPU 시뮬레이터**에도 L0 캐시를 모사한다면, 예를 들어
+개발자께서 구상하는 **NPU 시뮬레이터**에도 L0 캐시를 모사한다면, 예를 들어
 
 - **루프 기반 Tensor Kernel 실행 캐시** (작은 반복 커널을 빠르게 실행)
 - **디코드된 NPU 명령어 캐시** (Instruction Fetch 비용 절약)
@@ -891,7 +891,7 @@ ChatGPT:
 
 ChatGPT:
 
-좋습니다 👍 창훈님이 말씀하신 **L0 → L1 → L2 캐시 계층 구조**를 ASCII로 정리해보겠습니다.
+좋습니다 👍 개발자께서 말씀하신 **L0 → L1 → L2 캐시 계층 구조**를 ASCII로 정리해보겠습니다.
 
 ### 🔹 일반적인 캐시 계층 (CPU 기준)
 
@@ -954,7 +954,7 @@ ChatGPT:
 - **L1**부터가 본격적인 캐시 계층 (I/D Cache)
 - **L2, L3**는 공유 및 계층적 확장
 
-👉 창훈님 NPU 시뮬레이터 관점에서는
+👉 개발자님 NPU 시뮬레이터 관점에서는
 
 - **L0 = µOP 캐시 or Tiny Kernel Cache**
 - **L1 = Scratchpad / Local Tile Memory**
@@ -975,12 +975,12 @@ NPU 버전 L0/L1/L2 캐시 계층 ASCII 아키텍처도 따로 정리해줘.
 
 ChatGPT:
 
-좋습니다 👍 창훈님 말씀대로 **NPU 관점**에서 캐시/버퍼 계층 구조를 ASCII로 정리해보겠습니다.CPU 캐시와 달리, NPU에서는 **Scratchpad / Local Buffer** 개념이 훨씬 강하고, 계층은 연산 엔진(TE/VE)과 밀접히 연결됩니다.
+좋습니다 👍 개발자님 말씀대로 **NPU 관점**에서 캐시/버퍼 계층 구조를 ASCII로 정리해보겠습니다.CPU 캐시와 달리, NPU에서는 **Scratchpad / Local Buffer** 개념이 훨씬 강하고, 계층은 연산 엔진(TC/VC)과 밀접히 연결됩니다.
 
 ## 🔹 NPU 버전 L0/L1/L2 캐시/버퍼 계층 ASCII 구조
 
 ```
-[ Tensor / Vector Engine (TE / VE) ]
+[ Tensor / Vector Core (TC / VC) ]
                  │
                  ▼
         ┌─────────────────┐
@@ -1078,7 +1078,7 @@ ChatGPT:
 ## 🔑 정리
 
 - **L0 Cache (Tile-level / Register File / Scratchpad)**
-    - 연산 유닛(Tensor Engine, Vector Engine)과 가장 밀접.
+    - 연산 유닛(Tensor Core, Vector Core)과 가장 밀접.
     - MatMul tile, convolution kernel 단위 데이터를 저장.
     - latency 최소화, cycle-level access.
     - 보통 scratchpad SRAM, bank conflict 고려.
@@ -1095,6 +1095,6 @@ ChatGPT:
 
 👉 이 구조는 CPU/GPU와 달리 **특정 DNN 연산 패턴(MatMul, Conv, Attention)**에 맞춰 **scratchpad-like L0**가 중요한 차별점입니다.
 
-창훈님, 원하시면 제가 **예시 워크로드 (예: Transformer Attention)**가 이 계층을 어떻게 타는지 **메모리 흐름 시뮬레이션**을 그려드릴 수도 있는데, 그 방향으로 확장할까요?
+개발자님, 원하시면 제가 **예시 워크로드 (예: Transformer Attention)**가 이 계층을 어떻게 타는지 **메모리 흐름 시뮬레이션**을 그려드릴 수도 있는데, 그 방향으로 확장할까요?
 
 ---

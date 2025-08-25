@@ -10,8 +10,8 @@ from .npu_ir import NPUOp
 
 @dataclass
 class ENQCMD_T:
-    """Enqueue Command (Tensor Engine)
-    Submits a descriptor of an NPU operation (like MatMul, Conv) to the TE.
+    """Enqueue Command (Tensor Core)
+    Submits a descriptor of an NPU operation (like MatMul, Conv) to the TC.
     """
     # The actual NPU operation to be executed.
     npu_op_desc: NPUOp

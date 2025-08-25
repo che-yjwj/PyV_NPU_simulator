@@ -18,7 +18,7 @@
 |    RISC-V Core    |          |        NPU          |
 |                   |   MMIO   |                     |
 |  Instr. Dec.      |<-------->| Cmd Decoder         |
-|  Software Driver  |          | Tensor Engine       |
+|  Software Driver  |          | Tensor Core       |
 +---------^---------+          +---------^-----------+
 |                              |
 | DMA                          | DMA

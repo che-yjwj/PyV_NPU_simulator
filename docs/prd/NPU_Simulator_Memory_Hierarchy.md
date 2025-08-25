@@ -31,16 +31,16 @@ NPU 메모리 계층은 DNN 연산 패턴(Weight Reuse, Activation Locality)에 
 
 ### 2.1 주요 구성 요소
 - **버퍼(Buffer)**:
-  - **정의 및 역할**: 데이터 흐름 제어와 속도 조정을 위한 임시 저장. Tile 스트리밍에서 DRAM과 TE/VE 간 병목 완충.
+  - **정의 및 역할**: 데이터 흐름 제어와 속도 조정을 위한 임시 저장. Tile 스트리밍에서 DRAM과 TC/VC 간 병목 완충.
   - **세부 유형**:
-    - **Input Buffer**: DRAM → TE/VE, Tile 단위 적재, DMA prefetch 지원.
-    - **Output Buffer**: TE/VE → DRAM, 결과 임시 저장, Double Buffering.
+    - **Input Buffer**: DRAM → TC/VC, Tile 단위 적재, DMA prefetch 지원.
+    - **Output Buffer**: TC/VC → DRAM, 결과 임시 저장, Double Buffering.
     - **Weight Buffer**: 가중치 재사용 (예: Attention Key/Value).
   - **특징**: FIFO 구조, 크기 MB 단위 (기본 2 MiB), Bank-aware 배치로 Conflict 최소화. HBM3E 연동으로 대역폭 확장.
   - **예시**: Transformer Attention에서 Key/Value Tensor를 Input Buffer에 preload → 연산 중 Output Buffer에 결과 누적.
 - **Scratchpad Memory (SPM)**:
   - **정의 및 역할**: 재사용 최적화된 로컬 메모리. 명시적 DMA로 Cache Pollution 방지.
-  - **L0 SPM (Tile-level)**: PE/TE 내부, 0.5~1 cycle, MatMul/Conv Tile 저장. Bank 분할 (기본 8 banks)로 Conflict 최소화. μNPU에서 PE 클러스터링 최적화.
+  - **L0 SPM (Tile-level)**: PE/TC 내부, 0.5~1 cycle, MatMul/Conv Tile 저장. Bank 분할 (기본 8 banks)로 Conflict 최소화. μNPU에서 PE 클러스터링 최적화.
   - **L1 SPM (Local)**: Per-Cluster, 32KB~256KB, 2~4 cycles, DMA 제어, Prefetch 힌트 (distance 파라미터), ping-pong 버퍼.
   - **L2 SPM (Shared On-chip)**: Cross-Cluster 공유, 수 MB (기본 2 MiB), 10~20 cycles, CCx Coherence (CCI 프로토콜 옵션), Cache Bypass for large DMA. Distributed SRAM으로 확장.
   - **L3/DRAM**: Off-chip (HBM/DDR), 100~200 cycles, Token Bucket BW 모델 (기본 102.4 GB/s). HBM3E로 대역폭 2배 향상.
@@ -98,7 +98,7 @@ Access/Miss/DMA Complete/IRQ 이벤트 트리거, Bank Conflict Stall 숨김. PI
   ```
 
 ### 3.4 성능 메트릭스
-- **Throughput**: OPS/cycle, Tile 처리 속도, TE/VE/SPM Utilization (% 시간축 그래프).
+- **Throughput**: OPS/cycle, Tile 처리 속도, TC/VC/SPM Utilization (% 시간축 그래프).
 - **Latency**: Level별 Access (L0 SPM: 1 cycle, L1 SPM: 2~4 cycles, L2 SPM: 10~20 cycles), P99 Submit (Loose vs Tight), Stall 합계.
 - **Bandwidth**: GB/s (Token Bucket), Roofline Plot, Queue Depth 시계열, Bank Conflict %.
 
@@ -129,11 +129,11 @@ Access/Miss/DMA Complete/IRQ 이벤트 트리거, Bank Conflict Stall 숨김. PI
                                                                     │
                                                                     └─→ [L0 SPM (Tile-level, PE-local, 1 cycle, Bank Conflict)]
                                                                           │
-                                                                          └─→ [TE/VE Array (GEMM/Conv/Attention)]
+                                                                          └─→ [TC/VC Array (GEMM/Conv/Attention)]
                                                                                 │
                                                                                 └─→ [Output Buffer (Double Buffering)] ─→ DMA → [DRAM/HBM (L3, Token Bucket, HBM3E)]
 ```
-- **Miss Flow**: TE → L0 SPM Miss → L1 SPM Miss → L2 SPM Miss → Buffer → NoC → DRAM.
+- **Miss Flow**: TC → L0 SPM Miss → L1 SPM Miss → L2 SPM Miss → Buffer → NoC → DRAM.
 - **보완**: Double Buffering으로 T_comp와 T_in/out 중첩, PIM-like으로 Miss Penalty 감소.
 
 ### 4.2 NPU 메모리 계층 (Cluster 기반)
@@ -150,9 +150,9 @@ Access/Miss/DMA Complete/IRQ 이벤트 트리거, Bank Conflict Stall 숨김. PI
                 │   │
                 │   └─ [L1 SPM (Local, 32-256KB, 2-4 cycles, DMA, ping-pong, Prefetch, Banked 8)]
                 │         │
-                │         └─ [L0 SPM (Tile-level, PE/TE 내부, 0.5-1 cycle, Bank 분할, μNPU Partitioning)]
+                │         └─ [L0 SPM (Tile-level, PE/TC 내부, 0.5-1 cycle, Bank 분할, μNPU Partitioning)]
                 │               │
-                │               └─ TE/VE Compute (GEMM/Conv, Tiling Techniques)
+                │               └─ TC/VC Compute (GEMM/Conv, Tiling Techniques)
                 │
                 ├─ NPU Cluster #1 (Identical Structure)
                 │

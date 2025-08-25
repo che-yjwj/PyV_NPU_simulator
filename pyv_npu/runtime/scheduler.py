@@ -40,8 +40,8 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
     issue_queue = IssueQueueTracker(config)
     
     # --- Engine Free Time Pools ---
-    te_free_time = [0] * config.te
-    ve_free_time = [0] * config.ve
+    tc_free_time = [0] * config.tc
+    vc_free_time = [0] * config.vc
     dma_free_time = [0] * config.dma_channels
     cpu_free_time = [0]
 
@@ -85,7 +85,7 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
                 cpu_op_queue=cpu_op_queue, npu_work_queue=npu_work_queue,
                 time=time, config=config, schedule=schedule, event_queue=event_queue,
                 tensor_ready_time=tensor_ready_time, completed_tickets=completed_tickets,
-                engine_pools={'TE': te_free_time, 'VE': ve_free_time, 'DMA': dma_free_time, 'CPU': cpu_free_time},
+                engine_pools={'TC': tc_free_time, 'VC': vc_free_time, 'DMA': dma_free_time, 'CPU': cpu_free_time},
                 resource_trackers={'dram_banks': dram_bank_tracker, 'spm_banks': spm_banks, 'issue_queue': issue_queue},
                 op_pending_time=op_pending_time
             )
@@ -242,9 +242,9 @@ def get_engine_for_op(op: NPUOp, mode: str = 'loose') -> str:
     if mode == 'tight' and op.opcode in ('ENQCMD_T', 'TWAIT'):
         return "CPU"
     if op.opcode in ("MatMul", "Conv"):
-        return "TE"
+        return "TC"
     elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
-        return "VE"
+        return "VC"
     else:
         return "DMA"
 
@@ -254,10 +254,10 @@ def simple_greedy_schedule(p: Program) -> List[ScheduleItem]:
     for op in p.ops:
         if op.opcode in ("MatMul", "Conv"):
             dur = 100
-            eng = "TE"
+            eng = "TC"
         elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
             dur = 20
-            eng = "VE"
+            eng = "VC"
         else:
             dur = 10
             eng = "CPU"

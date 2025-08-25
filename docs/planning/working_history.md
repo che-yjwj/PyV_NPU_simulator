@@ -39,7 +39,7 @@ V250815a
   * 리포트/시각화에서 빨강 해치는 dep, 주황은 dram 등으로 분해 표시.
 4. L3로 확장 시
   * 엔진별 파이프라인 단계(Load/Compute/Store) 분리, 같은 엔진 내 오버랩 허용.
-  * DMA와 TE/VE 사이의 더블버퍼링(ping-pong) 모델 추가.
+  * DMA와 TC/VC 사이의 더블버퍼링(ping-pong) 모델 추가.
 
 V250814b: 스케줄러 Stall 로직 수정 및 테스트 안정화
   ✦ 완료된 작업:
@@ -119,7 +119,7 @@ V250812c
   다음으로 어떤 작업을 진행할까요? 제안 가능한 다음 단계는 다음과 같습니다.
 
    * 검증 및 테스트: 수정한 L2 시뮬레이터가 의도대로 동작하는지 확인하기 위해 테스트 케이스를 작성하고 실행합니다.
-   * M3: TE Custom ISA 및 MLIR 연동: tight 모드 구현을 구체화하여 ENQCMD_T, TWAIT 같은 커스텀 명령어를 처리하는 로직을
+   * M3: TC Custom ISA 및 MLIR 연동: tight 모드 구현을 구체화하여 ENQCMD_T, TWAIT 같은 커스텀 명령어를 처리하는 로직을
      스케줄러에 본격적으로 연동합니다.
    * 리포트 기능 강화: 현재 JSON으로 출력되는 리포트를 PRD에 명시된 Gantt 차트(HTML/SVG) 등으로 시각화하는 기능을 추가합니다.
    
@@ -142,7 +142,7 @@ V250812b
 
   2. RISC-V 연동 및 Custom ISA (M3, M4)
    * Tight-Coupled Custom ISA (설계/정의 완료): pyv_npu/isa/riscv_ext.py 파일에 PRD에서 요구한 ENQCMD_T, TWAIT, TBAR, TSTAT
-     명령어의 데이터 구조가 명확히 정의되어 있습니다. 이는 M3의 핵심인 TE Custom ISA 설계가 완료되었음을 의미합니다.
+     명령어의 데이터 구조가 명확히 정의되어 있습니다. 이는 M3의 핵심인 TC Custom ISA 설계가 완료되었음을 의미합니다.
    * Loose/Tight 모드 전환 (CLI 구현): pyv_npu/cli/main.py에서 --mode loose/tight 옵션을 제공하여 두 연동 방식을 선택할 수
      있도록 CLI가 구현되어 있습니다. PRD의 CLI 예시와 거의 일치합니다.
    * Py-V 연동 (진행 중): 실제 py-v 시뮬레이터와의 훅(hook) 연결 로직은 아직 명확하게 보이지 않습니다. 현재는 NPU 단독
@@ -171,7 +171,7 @@ V250812b
   │ NPU-IR 정의 (M0)            │ 완료                                 │ ir/npu_ir.py                              │
   │ **L0/L1 기능/타일-타임 (M0... │ 기본 구현                            │ runtime/simulator.py, `runtime/schedul... │
   │ L2 이벤트/자원 모델 (M2)    │ 초기 단계 (스케줄러 선택 로직만 ...  │ runtime/simulator.py                      │
-  │ TE Custom ISA 설계 (M3)     │ 완료 (데이터 구조 정의)              │ isa/riscv_ext.py                          │
+  │ TC Custom ISA 설계 (M3)     │ 완료 (데이터 구조 정의)              │ isa/riscv_ext.py                          │
   │ 컴파일러 패스 (M3)          │ 뼈대만 구현                          │ compiler/passes/*.py                      │
   │ Py-V 연동 (M4)              │ 미구현 (CLI 옵션만 존재)             │ cli/main.py                               │
   │ 상세 리포트 (HTML/SVG)      │ 미구현 (기본 JSON 리포트만 제공)     │ runtime/simulator.py                      │
@@ -201,7 +201,7 @@ V250812a
        * L0/L1/L2 레벨 지원: runtime/scheduler.py의 event_driven_schedule 함수는 이벤트 기반(L2) 스케줄링을 구현합니다. 이는 L0(기능 검증), L1(타일 시간) 모델을 포함하거나 확장할 수 있는 기반이 됩니다. (PRD 요구사항 3)
        * Loose-Coupled (MMIO) 연동: Scheduler.handle_doorbell 메서드는 MMIO Doorbell을 통해 작업을 수신하고, 메모리에서 디스크립터를 읽어 파싱하는 로직을 구현했습니다. (PRD 요구사항 8, 13-A)
        * Tight-Coupled (Custom ISA) 연동: event_driven_schedule 내에 config.mode == 'tight' 분기 처리가 있어, CPU가 ENQCMD_T 같은 명령을 내리는 시나리오를 시뮬레이션할 준비가 되어 있습니다. (PRD 요구사항 8, 13-B)
-       * 스케줄링: 이벤트 기반 스케줄러는 다중 엔진(TE/VE/DMA)의 유휴 상태를 추적하며 작업을 할당하는 기본 골격을 갖추고 있습니다. (PRD 요구사항 5)
+       * 스케줄링: 이벤트 기반 스케줄러는 다중 엔진(TC/VC/DMA)의 유휴 상태를 추적하며 작업을 할당하는 기본 골격을 갖추고 있습니다. (PRD 요구사항 5)
 
    5. CLI / API:
        * PRD에 명시된 pyv-npu run, compile 명령어와 대부분의 인자(--mode, --level, --isa 등)가 cli/main.py에 구현되어 있습니다. (PRD 요구사항 8, 13-F)

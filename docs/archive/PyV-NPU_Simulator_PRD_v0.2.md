@@ -1,5 +1,5 @@
 # PyV-NPU 시뮬레이터 개발 계획서 (PRD v0.2, 업데이트판)
-작성일: 2025-08-08 · 작성자: ChatGPT (with 창훈)
+작성일: 2025-08-08 · 작성자: ChatGPT
 
 ---
 
@@ -56,8 +56,8 @@
 
 ## C. 예시 run.yaml 구조
 ```yaml
-te: 2
-ve: 4
+tc: 2
+vc: 4
 spm_banks: 8
 dma_channels: 2
 bw_dram: 102.4GBps
@@ -74,11 +74,11 @@ report_dir: out/exp_001
 {
   "type": "object",
   "properties": {
-    "te": {"type": "integer", "minimum": 1},
-    "ve": {"type": "integer", "minimum": 1},
+    "tc": {"type": "integer", "minimum": 1},
+    "vc": {"type": "integer", "minimum": 1},
     "spm_banks": {"type": "integer", "minimum": 1}
   },
-  "required": ["te", "ve", "spm_banks", "model"]
+  "required": ["tc", "vc", "spm_banks", "model"]
 }
 ```
 

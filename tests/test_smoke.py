@@ -62,7 +62,7 @@ def test_smoke(monkeypatch, mock_onnx_model):
     # We check that the set of engine types used matches our expectations.
     engines_used = {it.engine for it in schedule}
     engine_types_used = {e.rstrip('0123456789') for e in engines_used}
-    assert engine_types_used == {"TE", "VE", "DMA"}
+    assert engine_types_used == {"TC", "VC", "DMA"}
 
 def test_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     # Mock onnx.load to return our fake model
@@ -83,8 +83,8 @@ def test_l2_simulator_smoke(monkeypatch, mock_onnx_model):
     total_cycles = max((it.end_cycle for it in schedule), default=0)
     assert total_cycles > 0
     engines_used = {it.engine for it in schedule}
-    assert any(k.startswith("TE") for k in engines_used)
-    assert any(k.startswith("VE") for k in engines_used)
+    assert any(k.startswith("TC") for k in engines_used)
+    assert any(k.startswith("VC") for k in engines_used)
     assert "dram_collisions" in stats
 
 @pytest.mark.skip(reason="Tight mode scheduler is not yet implemented")
@@ -101,5 +101,5 @@ def test_tight_mode_l2_simulator_smoke(monkeypatch, mock_onnx_model):
 
     schedule, stats = run(p, config)
     assert stats['total_cycles'] > 0
-    assert any(k.startswith("TE") for k in stats['engine_utilization'].keys())
-    assert any(k.startswith("VE") for k in stats['engine_utilization'].keys())
+    assert any(k.startswith("TC") for k in stats['engine_utilization'].keys())
+    assert any(k.startswith("VC") for k in stats['engine_utilization'].keys())
