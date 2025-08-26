@@ -1,80 +1,16 @@
-# NPU Simulator Feature Roadmap (PRD v2.4 기반)
+# Tinygrad 프론트엔드 지원 작업 계획
 
-본 문서는 `PRD: NPU 시뮬레이터의 메모리 계층 구조 설계 (v2.4)`를 기반으로, Double Buffering 이후 구현할 주요 기능의 로드맵을 정의합니다.
-
----
-
-## Phase 1: `sim_1` 완성 및 기본 연동 구현
-
-1.  **세분화된 SPM 모델링:**
-    - **L0 SPM:** 연산 유닛(TC) 바로 옆에 붙는 초고속 타일 레벨 버퍼를 모델링합니다. 현재의 `BankTracker`를 L1 SPM 용으로 간주하고, L0 개념을 새로 추가해야 합니다.
-        - **우선순위**: P0, **난이도**: M
-    - **전용 버퍼(Input/Output):** SPM과 별개로, DMA와 연산 유닛 사이의 데이터 흐름을 제어하는 Input/Output 버퍼(FIFO 구조)를 구현합니다.
-        - **우선순위**: P0, **난이도**: M
-
-2.  **Py-V 연동 훅(Hook) 구현:**
-    - **MMIO 연동 (Loose-Coupled):** Py-V 코어가 특정 주소(e.g., `0x40000020`)에 값을 쓸 때, NPU 스케줄러가 작업을 큐에 넣도록 하는 MMIO 훅을 실제로 연결하고 테스트합니다.
-        - **우선순위**: P0, **난이도**: S
-    - **기본 Prefetch 모델:** 스케줄러가 DMA에 미리 데이터를 가져오도록 `prefetch_dist`와 같은 힌트를 주는 기능을 추가합니다.
-        - **우선순위**: P1, **난이도**: M
-
----
-
-## Phase 2: `sim_2` 구현 및 스케줄러/NoC 고도화
-
-1.  **NoC(Network-on-Chip) 모델링:**
-    - 현재는 단순 대역폭 값만 사용하지만, PRD 요구사항에 따라 NoC를 통과할 때의 **홉(Hop)당 지연 시간**과 **큐(Queue) 대기 시간**을 모델링하여 통신 병목을 더 정확하게 시뮬레이션합니다.
-        - **우선순위**: P1, **난이도**: M
-
-2.  **고급 스케줄링 정책:**
-    - **CP-prio (Critical-Path Priority):** 전체 작업의 최종 완료 시간을 단축시키기 위해, 가장 급한 연산(Critical Path)을 먼저 스케줄링하는 알고리즘을 추가합니다.
-        - **우선순위**: P1, **난이도**: L
-    - **Bank-aware Scheduling:** SPM의 뱅크 충돌을 최소화하도록 데이터의 위치를 고려하여 스케줄링하는 기능을 구현합니다.
-        - **우선순위**: P1, **난이도**: M
-
-3.  **Py-V 연동 고도화 (Tight-Coupled):**
-    - **Custom ISA 디코더:** Py-V 시뮬레이터가 `ENQCMD_T`, `TWAIT` 같은 NPU 전용 명령어를 해석하고, NPU 스케줄러와 상호작용하도록 디코더 훅을 구현합니다.
-        - **우선순위**: P1, **난이도**: M
-
-4.  **리포트 및 시각화 강화:**
-    - **큐 깊이 시계열 그래프:** NoC나 버퍼의 큐 깊이가 시간에 따라 어떻게 변하는지 시각화하여 병목 지점을 쉽게 찾도록 합니다.
-        - **우선순위**: P1, **난이도**: S
-    - **뱅크 충돌(%) 통계:** 전체 메모리 접근 중 뱅크 충돌이 얼마나 발생했는지 비율을 리포트에 추가합니다.
-        - **우선순위**: P1, **난이도**: S
-
----
-
-## Phase 3: `sim_3` 및 전체 시스템 통합
-
-1.  **L2 공유 SPM 모델:**
-    - 여러 NPU 클러스터가 공유하는 L2 SPM을 구현합니다. 데이터 일관성을 유지하기 위한 **캐시 일관성(CCx) 프로토콜**의 기본 모델을 선택적으로 적용할 수 있도록 합니다.
-        - **우선순위**: P2, **난이도**: L
-
-2.  **Full CA(Cycle-Accurate) 모델링:**
-    - **파이프라인 스톨:** TC/VC 내부의 파이프라인 레벨에서 발생하는 스톨까지 정밀하게 모델링합니다.
-        - **우선순위**: P2, **난이도**: L
-    - **Verilator Co-simulation:** 필요시 Verilator로 생성된 RTL과 연동하여 실리콘 수준의 정확도를 갖도록 합니다.
-        - **우선순위**: P2, **난이도**: L
-
-3.  **고급 분석 리포트:**
-    - **Roofline Plot:** 시뮬레이터의 연산 성능과 메모리 대역폭의 관계를 분석하는 Roofline 그래프를 생성합니다.
-        - **우선순위**: P2, **난이도**: M
-
----
-
-## Phase 4: 신규 프론트엔드 지원 (Tinygrad)
-
-### 1. 개요
+## 1. 개요
 
 이 문서는 `PyV_NPU_simulator` 프로젝트에 `tinygrad` 딥러닝 프레임워크를 새로운 프론트엔드로 지원하기 위한 구체적인 작업 계획을 정의합니다. 최종 목표는 `tinygrad`로 작성된 모델을 프로젝트의 내부 중간 표현(Intermediate Representation, IR)인 `model_ir`로 변환하는 importer를 개발하는 것입니다.
 
-### 2. 핵심 과제
+## 2. 핵심 과제
 
 `tinygrad`의 지연 평가(lazy evaluation) 방식에 의해 생성되는 계산 그래프(`LazyOp`의 DAG)를 분석하고, 이를 `model_ir`의 노드와 텐서로 정확하게 매핑합니다. 기존 `ONNX importer`는 이 과정에서 중요한 참고 자료가 될 것입니다.
 
-### 3. 세부 작업 리스트
+## 3. 세부 작업 리스트
 
-#### Phase 1: 분석 및 준비 (Analysis & Preparation)
+### Phase 1: 분석 및 준비 (Analysis & Preparation)
 
 - **[분석]** **Target IR 구조 이해:**
   - `pyv_npu/ir/model_ir.py` 파일을 정독하여 `ModelIR`, `Node`, `Tensor` 등 핵심 클래스의 구조와 속성을 파악합니다.
@@ -87,7 +23,7 @@
     - 텐서 정보(shape, dtype) 및 가중치(initializer)를 처리하는 방법
     - 변환된 노드들을 관리하는 방식 (e.g., 딕셔너리 사용)
 
-#### Phase 2: Importer 초기 구현 (Initial Importer Scaffolding)
+### Phase 2: Importer 초기 구현 (Initial Importer Scaffolding)
 
 - **[구현]** **Importer 파일 생성:**
   - `pyv_npu/ir/tinygrad_importer.py` 파일을 새로 생성합니다.
@@ -101,7 +37,7 @@
   - 재귀(recursion) 또는 스택(stack) 기반으로 `LazyOp`의 `src` (source buffers)를 따라가며 그래프를 역순으로 순회하는 함수를 구현합니다.
   - 이미 방문한 `LazyBuffer`를 `model_ir`의 `Tensor`로 매핑하여 저장하는 딕셔너리(`memo` 또는 `visited`)를 운영하여 중복 변환을 방지합니다.
 
-#### Phase 3: 연산자 매핑 구현 (Operation Mapping)
+### Phase 3: 연산자 매핑 구현 (Operation Mapping)
 
 - **[구현]** **LoadOps 매핑 (데이터 로딩):**
   - `LoadOps.CONST`: `model_ir`에서 상수 `Tensor`를 생성하는 로직을 구현합니다.
@@ -125,7 +61,7 @@
 - **[구현]** **FusedOps 매핑 (융합 연산):**
   - `FusedOps.MULACC` (Multiply-Accumulate): `MatMulNode` 또는 `ConvNode`로 매핑될 가능성이 높습니다. `MULACC`가 `tinygrad`에서 정확히 어떤 연산을 나타내는지 추가 분석이 필요하며, 이는 가장 복잡한 매핑이 될 수 있습니다.
 
-#### Phase 4: 통합 및 테스트 (Integration & Testing)
+### Phase 4: 통합 및 테스트 (Integration & Testing)
 
 - **[테스트]** **단위 테스트 작성:**
   - 간단한 `tinygrad` 모델(e.g., `a * b + c`)을 생성합니다.

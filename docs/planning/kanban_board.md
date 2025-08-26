@@ -139,6 +139,11 @@ v250813b
 ---
 
 ## Done
+### SCH-02 | Double Buffering 기능 구현
+- **요약**: 연산(Compute)과 데이터 전송(DMA)을 중첩시켜 연산 유닛의 유휴 시간을 최소화하는 Double Buffering을 구현합니다.
+- **수용기준**: MatMul 연산에서 Compute와 Load/Store가 Gantt 차트에서 겹쳐서 표시됨. 순차 실행 대비 총 사이클 수 감소 확인.
+- **우선순위**: P0 / **사이즈**: M / **의존성**: — / **태그**: 스케줄러, 성능최적화, Phase1
+
 ### T-01 | Tight 모드 제어 경로 구체화
 - **요약**: doorbell/CSR/큐 지연, 마이크로코드 발사율 모델
 - **수용기준**: tight vs loose 동일 프로그램에서 제어 오버헤드 차이 리포트(P50/P95)
@@ -181,3 +186,4 @@ v250813b
 - **EPIC-CTRL**: Tight 모드 제어 경로 및 마이크로코드（T-01）
 - **EPIC-REP**: 리포트/시각화/벤치 자동화（R-02, EX-01, DOC-01）
 - **EPIC-OPS**: 설정 외부화/테스트/CI（CI-01, S-02）
+- **EPIC-TINYGRAD**: `tinygrad` 프론트엔드 지원 (P-03)

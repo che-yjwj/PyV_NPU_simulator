@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package hw_aware_ir;
+
+// 기본 데이터 타입
+enum DataType {
+  DT_INT8 = 0;
+  DT_INT16 = 1;
+  DT_INT32 = 2;
+  DT_FLOAT16 = 3;
+  DT_FLOAT32 = 4;
+}
+
+// 메모리 공간 구분
+enum MemorySpace {
+  MEM_GLOBAL = 0;
+  MEM_SHARED = 1;
+  MEM_LOCAL  = 2;
+  MEM_CONST  = 3;
+}
+
+// 연산자 정의
+message Instruction {
+  string opcode = 1;               // 예: "MatMul", "Add", "GELU"
+  repeated int32 input_ids = 2;    // 입력 operand ID
+  repeated int32 output_ids = 3;   // 출력 operand ID
+  map<string, string> attrs = 4;   // stride, tiling, bank 등 메타정보
+}
+
+// Operand 정의
+message Operand {
+  int32 id = 1;
+  DataType dtype = 2;
+  repeated int32 shape = 3;        // 텐서 shape
+  MemorySpace memory = 4;
+  int32 address = 5;               // 메모리 오프셋
+}
+
+// IR 전체 프로그램
+message HWProgram {
+  repeated Operand operands = 1;
+  repeated Instruction instructions = 2;
+}

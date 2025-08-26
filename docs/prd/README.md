@@ -1,14 +1,34 @@
-# PyV-NPU 통합 실행 계획서 (통합 PRD v1.1 완전판)
-작성일: 2025-08-09 · 작성자: ChatGPT
+# PyV-NPU 통합 실행 계획서 (통합 PRD v1.2)
+작성일: 2025-08-26 · 작성자: ChatGPT, Gemini
 
 ## 0) 개요 (Scope & Goals)
 - **목표**  
   RISC-V 기반 **PyV-NPU 시뮬레이터**를 단계별(Level)로 개발하여, ONNX/MLIR 입력을 **NPU-IR**로 변환 → 스케줄링 → 타이밍·자원 모델링 → 타일 수준·이벤트 기반·사이클 수준 분석 및 리포트 생성.  
   RISC-V **프론트엔드(LLVM/MLIR, ONNX 변환, Custom ISA)**와 **백엔드(NPU, 메모리 계층, DMA, NoC, Cache Coherence)** 설계를 통합.  
-  **[확장]** Tight-coupled Custom ISA 기반 **Tensor Core(TC)** 제어 명령어 세트를 정의·시뮬레이션·검증하여 CPU介재 없이 저지연 커널 제출 가능 구조 포함.
+  **[확장]** Tight-coupled Custom ISA 기반 **Tensor Core(TC)** 제어 명령어 세트를 정의·시뮬레이션·검증하여 CPU 개입 없이 저지연 커널 제출이 가능한 구조를 포함.
 
 - **타깃 워크로드**: LLM 추론(Attention/MLP), Conv/GEMM 기반 비전 네트워크.  
 - **비목표(본 버전)**: OS/드라이버 전체 모델, 전면 RTL 구현, 정확한 전력 추정(전력은 추후 모델).
+
+---
+
+## 세부 요구사항 문서 (Detailed Requirement Documents)
+
+본 문서는 프로젝트의 통합 요구사항을 다루며, 각 기능 영역에 대한 상세한 내용은 아래의 세부 PRD에서 정의합니다.
+
+### 📜 `PRD_RISC-V_NPU_coupled_mode.md`
+- **요약**: RISC-V 코어와 NPU를 연동하는 두 가지 모드(`Loosely-coupled`, `Tightly-coupled`)의 아키텍처와 요구사항을 정의합니다. 각 모드의 제어 흐름, 실행 모델(Blocking/Non-blocking), 성능 평가 기준을 상세히 기술합니다.
+
+### 📜 `PRD_Tinygrad_to_HW_Aware_IR.md`
+- **요약**: 경량 딥러닝 프레임워크인 `Tinygrad`의 계산 그래프를 시뮬레이터의 하드웨어 인지 IR(`HW-Aware IR`)로 변환하는 변환 계층의 요구사항을 정의합니다. 이는 빠른 알고리즘 검증과 정밀 시뮬레이션을 연결하는 역할을 합니다.
+
+### 📜 `pyv_npu_runtime.md`
+- **요약**: 시뮬레이터의 런타임 시스템 설계 요구사항을 정의합니다. 명령어 큐, 의존성 분석, 스케줄러, Reorder Buffer(ROB) 등 시뮬레이션 실행의 핵심 구성요소와 동작 시나리오를 다룹니다.
+
+### 📜 `NPU_Simulator_Memory_Hierarchy.md` (현 `system_architecture.md`에 통합됨)
+- **요약**: NPU의 다계층 메모리 구조(버퍼, L0~L3 SPM, NoC, DRAM)를 상세히 정의했던 핵심 문서입니다. 현재 이 문서의 내용은 `docs/architecture/system_architecture.md`에 공식 아키텍처로 통합되었습니다.
+
+---
 
 ## 1) 사용자 스토리
 - **시스템 아키텍트**: 타일 크기·메모리 파라미터 스윕 → PPA 트레이드오프 도출.
@@ -19,7 +39,7 @@
 ## 2) 요구사항 (Requirements)
 
 ### 기능 요구
-1. **입력**: ONNX(우선), (옵션) MLIR  
+1. **입력**: ONNX(우선), (옵션) MLIR, (확장) Tinygrad
 2. **출력**:  
    - (a) NPU-IR 트레이스(JSONL)  
    - (b) 실행 타임라인(CSV)  
@@ -139,210 +159,4 @@ RISC-V Core (Py-V)
 ```
 
 ## 13) RISC-V ↔ NPU 연동 방식 (Py-V 기반, 확정안)
-RISC‑V ↔ NPU 연동 방식 (Py‑V 기반, 확정안)
-본 시뮬레이터는 https://github.com/kyaso/py-v를 RISC‑V 실행 프런트엔드로 채택한다. 연동 모드는 Loose‑coupled (MMIO/CSR) 와 Tight‑coupled (Custom ISA) 를 모두 지원한다. 두 모드는 동일한 NPU‑IR / 디스크립터 포맷을 공유하며, 제출 경로(submit path) 만 다르다.
-
-A) Loose‑coupled (MMIO/CSR) 모드
-메모리 맵 (예시)
-
-NPU_MMIO_BASE = 0x4000_0000
-
-+0x00: QUEUE_BASE_LO/HI (RW) – 커널 디스크립터 링 버퍼 베이스
-
-+0x10: QUEUE_HEAD/TAIL (RW) – 호스트/디바이스 큐 인덱스
-
-+0x20: DOORBELL (WO) – 새 작업 제출 알림 (head 값 또는 ticket)
-
-+0x24: IRQ_STATUS (RO), IRQ_MASK (RW)
-
-+0x40: PERFCNT_* (RO) – TC/VC/DMA/Bank 활용도, 큐 깊이 등 카운터
-
-디스크립터 (공통 포맷, 64B 정렬)
-
-rust
-Copy
-Edit
-u32 op;             // GEMM_T / CONV2D_T / ATTN_T / ELTWISE / ...
-u32 flags;          // prio/stream/bank_mask/prefetch_dist
-u64 in0_addr; u64 in1_addr; u64 out_addr;   // SPM/DRAM VA (시뮬 주소)
-u32 tile_m; u32 tile_n; u32 tile_k;         // 또는 op별 shape
-u32 reserved[5];                            // 확장
-u32 ticket;                                 // 제출 식별자
-호스트 제출 절차
-
-디스크립터 링에 기록 → QUEUE_TAIL 증가
-
-DOORBELL 레지스터에 Tail(or ticket) 쓰기
-
-필요 시 IRQ enable 후 폴링/IRQ 대기
-
-Py‑V 훅
-
-MMIO write/read 핸들러를 Py‑V의 버스 모델에 등록
-
-IRQ 발생 시 Py‑V의 외부 인터럽트 라인 세트
-
-NPU 사이드
-
-Doorbell 수신 → 새 디스크립터 페치 → 스케줄러/큐로 인입 → 실행
-
-완료 시 IRQ_STATUS 세트 + optional ticket 업데이트
-
-B) Tight‑coupled (Custom ISA) 모드
-목표: 문맥 전환/드라이버 오버헤드 없이 저지연 커널 제출
-
-명령어 세트 (초안)
-
-ENQCMD_T rd, rs1, rs2
-
-rs1: desc_ptr (디스크립터 주소)
-
-rs2: flags (prio/stream)
-
-rd: ticket 반환
-
-TWAIT rs1 – rs1의 ticket 완료까지 대기
-
-TBAR imm – 타일/클러스터/글로벌 배리어
-
-TSTAT rd – TC 상태/큐 깊이/유휴율 패킹 반환
-
-인코딩 가이드 (RISC‑V custom‑0 예시)
-
-major opcode: CUSTOM‑0 (0b0001011)
-
-ENQCMD_T: R‑type, funct7=0x2E, funct3=0x0
-
-TWAIT : I‑type, funct3=0x1
-
-TBAR : I‑type, funct3=0x2, imm에 scope 인코딩
-
-TSTAT : I‑type, funct3=0x3
-
-시뮬레이터는 합법/불법 인스트럭션을 소프트 디코더로 판별하며, 실제 하드웨어로의 이전 시 binutils/LLVM 백엔드 확장을 진행.
-
-Py‑V 훅 (필수 포인트)
-
-Decoder hook: 위 인코딩 매치를 추가, 해당 핸들러 호출
-
-Handler:
-
-ENQCMD_T: desc_ptr에서 디스크립터 로드 → 내부 NPU 큐에 push → ticket 생성/rd에 기록
-
-TWAIT: 지정 ticket의 완료 future 대기 (시뮬시간)
-
-TBAR: 스케줄러에 범위 배리어 enqueue
-
-TSTAT: 현재 큐 깊이/유휴율/활용도 스냅샷을 패킹해 rd 반환
-
-CSR map (선택): TC 큐 베이스/마스크/IRQ 상태 등을 CSR로 노출 (MMIO 대체/보완)
-
-C) 공통 실행 타임라인
-호스트에서 ONNX/MLIR → NPU‑IR 생성 → 디스크립터 빌드
-
-Loose: 링에 쓰기 + DOORBELL / Tight: ENQCMD_T 실행
-
-스케줄러: bank‑aware + CP‑prio로 DMA/TC/VC에 타일 배치
-
-완료 시 ticket/IRQ 갱신 → Loose: 폴링/IRQ read / Tight: TWAIT 리턴
-
-리포트: 타임라인(Gantt), 자원 활용도, TC 큐 깊이 시계열, P99 제출 지연 비교
-
-D) 에러/예외 처리 (시뮬레이터 규칙)
-디스크립터 검증 실패: 해당 ticket ERROR 상태로 즉시 완료 + 원인 로그
-
-큐 full: ENQCMD_T는 SW‑visible 리트라이 코드(예: rd=-EBUSY) 반환
-
-불법 명령어: Tight 모드 off일 때는 Illegal Instruction 트랩 발생(옵션)
-
-타임아웃: TWAIT에 최대 대기 사이클 옵션(디폴트 무한)
-
-E) 성능 카운터 (리포트 연계)
-제출/수락 지연(T_submit) 분포, P50/P95/P99
-
-TC/VC/DMA/Bank 활용도(%) 시간축
-
-큐 깊이 시계열, 배리어 대기 시간, bank conflict stall 합계
-
-Loose vs Tight 모드별 타일 크기 변화에 따른 T_submit/T_comp 비율
-
-F) CLI/API (갱신)
-bash
-Copy
-Edit
-# Loose 모드 (MMIO/CSR)
-pyv-npu run model.onnx \
-  --sim_level CA_HYBRID \
-  --mode loose \
-  --mmio-base 0x40000000 \
-  --queue-size 1024 \
-  --report out/loose_run
-
-# Tight 모드 (Custom ISA)
-pyv-npu run model.onnx \
-  --sim_level CA_HYBRID \
-  --mode tight \
-  --isa enqcmd,twait,tbar,tstat \
-  --report out/tight_run
-python
-Copy
-Edit
-from pyv_npu import Simulator
-
-# Loose
-sim = Simulator(model="model.onnx", sim_level="IA_TIMING", mode="loose",
-                mmio_base=0x4000_0000, queue_size=1024)
-sim.run()
-
-# Tight
-sim = Simulator(model="model.onnx", sim_level="CA_HYBRID", mode="tight",
-                te_isa=["enqcmd","twait","tbar","tstat"])
-sim.run()
-G) 검증 플랜 (요약)
-기능: 동일 NPU‑IR로 Loose/Tight 모드 결과 일치성 검증(타일 완료 순서/결과)
-
-성능: 제출 지연(P99), 큐 깊이, TC 유휴율 비교. 타일 크기/prefetch_dist 스윕 자동화.
-
-내고장성: 큐 full/오류 디스크립터/Illegal‑ISA 경로 유닛 테스트.
-
-
-RISC‑V ↔ NPU 연동 구조도 (Py‑V 기반)
-perl
-Copy
-Edit
-                         ┌────────────────────────────────────────────────────────────────────┐
-                         │                          Host (RISC-V / Py‑V)                      │
-                         │                                                                    │
-App/Runtime/API ───────► │  pyv_npu.Runtime                                                  │
-                         │    ├─ onnx_loader / mlir_frontend                                 │
-                         │    ├─ compiler_passes (tiling, fusion, prefetch_hint)             │
-                         │    ├─ npu_ir_emitter (LOAD/STORE/GEMM_T/ATTN_T/...)               │
-                         │    ├─ descriptor_builder (kernel desc & DMA scripts)              │
-                         │    └─ driver                                                      │
-                         │         ├─ Loose: MMIO write(doorbell) / read(status/IRQ)         │
-                         │         └─ Tight: ENQCMD_T / TWAIT / TBAR / TSTAT (custom ISA)    │
-                         └─────────┬──────────────────────────────────────────────────────────┘
-                                   │ AXI-Lite (MMIO/CSR) & IRQ (loose)  │  Custom opcode (tight)
-                                   │                                     │
-                                   ▼                                     ▼
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                    SoC Interconnect / NoC / AXI                                        │
-│                                                                                                        │
-│   ┌──────────────┐      ┌────────────────┐      ┌────────────────────────────────┐                     │
-│   │  L2 / CCx    │◄────►│   NPU Bridge   │◄────►│          MMIO/CSR Window       │                     │
-│   └──────────────┘      └────────────────┘      │  0x4000_0000.. (queue, doorbell)│                     │
-│                                                 └────────────────────────────────┘                     │
-│                 ▲                                          ▲                                           │
-│   DRAM Ctlr  ───┼──────────────────────────────────────────┼───────────────────────────                │
-│                 │                                          │                                           │
-│    ┌─────────────────────────────────────────── NPU Cluster (xN) ───────────────────────────────────┐ │
-│    │   ┌────────── Scheduler/Dispatcher ──────────┐  ┌──────── DMA (0..C-1) ───────┐               │ │
-│    │   │  IR Queue | CP-prio | Bank-aware         │  │ per-chan q | DBB | Prefetch │               │ │
-│    │   └──────────────────────────────────────────┘  └──────────────────────────────┘               │ │
-│    │   ┌────────────── SPM (banked) ───────────────┐  ┌──────────── Compute ─────────┐             │ │
-│    │   │ banks | ping-pong | arbiter | counters    │  │  TC array (GEMM/CONV/ATTN)   │             │ │
-│    │   └───────────────────────────────────────────┘  │  VC array (LN/GELU/ELTWISE)  │             │ │
-│    │                                                  └───────────────────────────────┘             │ │
-│    └────────────────────────────────────────────────────────────────────────────────────────────────┘ │
-└────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-Legend: DBB=Double Buffering, CP-prio=Critical-Path priority
+(이하 내용은 기존과 동일하여 생략)

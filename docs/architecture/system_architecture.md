@@ -1,31 +1,13 @@
 # PyV-NPU System Architecture
 
-**버전: 1.0 (2025-08-24 기준)**
+**Version: 2.0 (2025-08-26 기준)**
+**Source PRD: NPU_Simulator_Memory_Hierarchy.md (v2.4)**
 
-본 문서는 PyV-NPU 시뮬레이터의 공식 시스템 아키텍처를 정의합니다. PRD v2.4의 최종 결정사항을 반영하며, 프로젝트의 모든 참여자는 본 문서의 아키텍처를 기준으로 개발을 진행합니다.
-
----
-
-## 1. 전체 아키텍처 및 데이터 흐름
-
-시뮬레이터는 ONNX 모델을 입력받아 내부 IR(Intermediate Representation)로 변환하고, 이를 NPU가 실행할 수 있는 프로그램으로 컴파일한 뒤, 이벤트 기반 런타임에서 실행하여 성능 리포트를 생성하는 파이프라인 구조를 가집니다.
-
-```
-[ONNX Model] -> [onnx_importer] -> [Model IR]
-     |
-     v
-[Compiler (mapper, passes)] -> [NPU Program]
-     |
-     v
-[Runtime (scheduler, resources)] -> [Schedule / Stats]
-     |
-     v
-[Reporting (utils)] -> [Report (JSON, HTML/Gantt)]
-```
+본 문서는 PyV-NPU 시뮬레이터의 공식 시스템 아키텍처를 정의합니다.
 
 ---
 
-## 2. 시뮬레이션 레벨 (`sim_level`)
+## 1. 시뮬레이션 레벨 (`sim_level`)
 
 시뮬레이터는 다음과 같이 4단계의 명확한 추상화 수준을 지원합니다.
 
@@ -34,66 +16,33 @@
 | **`IA`**        | 기능 정확성   | 타이밍 없이 기능의 정확성만 검증. (구 `L0`)                          |
 | **`IA_TIMING`** | 명령어+타이밍 | 타일 단위의 개략적인 지연 시간과 기본적인 자원 충돌을 모델링. (구 `L1`) |
 | **`CA_HYBRID`** | 하이브리드 CA | 이벤트 기반으로 NoC, 큐, 메모리 계층 등 주요 병목을 정밀하게 모델링. (구 `L2`) |
-| **`CA_FULL`**   | 외부 연동 CA (옵션) | Python 시뮬레이터의 성능 한계를 넘어, **MATLAB/Simulink (SoC Blockset 포함)**나 SystemC/C++ 같은 외부 전문 도구와 연동하여 완전한 Cycle-Accurate 시뮬레이션을 구현합니다. (예: Verilator co-sim) |
+| **`CA_FULL`**   | 외부 연동 CA (옵션) | 외부 전문 도구(MATLAB/Simulink, SystemC 등)와 연동하여 완전한 Cycle-Accurate 시뮬레이션을 구현합니다. |
 
 ---
 
-## 3. 메모리 아키텍처
+## 2. 메모리 아키텍처
 
 본 시뮬레이터의 메모리 아키텍처는 NPU의 예측 가능한 성능 확보를 위해 **다계층 SPM(Scratchpad Memory)을 중심**으로 설계되었습니다. 하드웨어 제어 캐시는 비교 분석을 위한 연구 옵션으로만 고려하며, 기본 모델은 SPM입니다.
 
-### 3.1. 메모리 계층 구조 다이어그램
+### 2.1. 주요 구성 요소
 
-```
-[DRAM/HBM (L3, Off-chip, 100-200 cycles)]
-  │
-  └─ DMA / NoC (Network-on-Chip, 256 GB/s)
-      │
-      └─ [L2 SPM (Shared On-chip, 수 MB, 10-20 cycles)]
-            │
-            └─ NPU Cluster
-                │
-                ├─ [Input/Output Buffers (FIFO, 수 MB)]
-                │
-                └─ [L1 SPM (Local, 수백 KB, 2-4 cycles)]
-                      │
-                      └─ [L0 SPM (Tile-level, 수 KB, 0.5-1 cycle)]
-                            │
-                            └─ [TC/VC Compute Engines]
-```
+- **버퍼(Buffer)**: 데이터 흐름 제어와 속도 조정을 위한 임시 저장소입니다. (Input/Output/Weight 버퍼)
+- **Scratchpad Memory (SPM)**: 재사용 최적화를 위한 명시적으로 제어되는 로컬 메모리입니다.
+  - **L0 SPM (Tile-level)**: PE/TC 내부에 위치하며, 현재 처리 중인 데이터 타일을 저장합니다. (0.5~1 cycle)
+  - **L1 SPM (Local)**: 클러스터별 로컬 메모리로, DMA로 제어됩니다. (2~4 cycles)
+  - **L2 SPM (Shared On-chip)**: 여러 클러스터가 공유하는 메모리입니다. (10-20 cycles)
+- **DRAM (L3)**: HBM/DDR과 같은 외부 메인 메모리입니다. (100-200 cycles)
+- **NoC (Network-on-Chip)**: DRAM과 클러스터, 또는 클러스터 간 데이터 이동을 담당하는 인터커넥트입니다.
 
-### 3.2. 주요 구성 요소
+### 2.2. 핵심 설계: SPM vs. 캐시
 
-- **DRAM (L3):** HBM/DDR과 같은 외부 메인 메모리. Token Bucket 모델로 대역폭을 제어합니다.
-- **NoC:** DRAM과 NPU 클러스터, 그리고 클러스터 간 데이터 이동을 담당하는 인터커넥트입니다. 홉(hop) 지연과 큐(queue)를 모델링합니다.
-- **L2 SPM:** 여러 NPU 클러스터가 공유하는 On-chip SRAM. 클러스터 간 데이터 공유에 사용되며, 선택적으로 캐시 일관성(CCx)을 모델링할 수 있습니다.
-- **Input/Output Buffers:** DMA 전송과 연산 유닛 사이의 데이터 흐름을 완충하는 FIFO 구조의 버퍼입니다. Double Buffering을 통해 데이터 전송과 연산의 중첩(overlap)을 구현하는 데 사용됩니다.
-- **L1 SPM:** 각 NPU 클러스터에 속한 로컬 메모리. 소프트웨어(스케줄러)가 명시적으로 제어하며, Prefetch와 같은 최적화의 대상이 됩니다.
-- **L0 SPM:** 연산 유닛(TC/VC)에 가장 가까이 위치한 초고속 버퍼. 현재 처리 중인 데이터 타일(tile)을 저장하여 지연 시간을 최소화합니다.
-
-### 3.3. 핵심 설계 결정: SPM vs. 캐시
-
-본 시뮬레이터가 하드웨어 관리형 캐시(Cache)가 아닌 소프트웨어 관리형 SPM(Scratchpad)을 메모리 계층의 중심으로 채택한 이유는 NPU의 작업 특성을 고려한 의도적인 설계 결정이며, 다음과 같은 장점을 극대화하기 위함입니다.
-
-1.  **예측 가능성 (Predictability):**
-    - NPU가 처리하는 딥러닝 연산은 데이터 접근 패턴이 매우 규칙적이고 정형화되어 있습니다. SPM을 사용하면 소프트웨어가 데이터 이동을 완벽하게 제어할 수 있어, 데이터 접근에 걸리는 시간을 정확하게 예측할 수 있습니다. 이는 성능 병목을 정밀하게 분석하고, 실시간성을 보장하는 데 매우 중요합니다.
-    - 반면, 캐시는 하드웨어의 자동적인 동작(히트/미스)으로 인해 지연 시간이 불확실하여 성능 분석을 더 복잡하게 만듭니다.
-
-2.  **효율성 (Efficiency):**
-    - SPM은 예측된 접근 패턴에 따라 **필요한 데이터만, 필요한 시점에 정확히** 가져다 놓으므로 데이터 이동이 매우 효율적입니다.
-    - 캐시는 범용적인 교체 정책(e.g., LRU)으로 인해, NPU의 스트리밍 데이터 흐름에 비효율적인 **"캐시 오염(Cache Pollution)"** 을 유발할 수 있습니다. 이는 곧 사용될 중요한 데이터가 당장 필요 없는 데이터에 의해 밀려나는 현상으로, 불필요한 DRAM 접근을 증가시켜 성능을 저하시킵니다.
-
-3.  **하드웨어 복잡도 및 전력:**
-    - SPM은 단순한 SRAM과 DMA로 구성되어 하드웨어 구조가 간단하고, 전력 효율이 높습니다.
-    - 캐시는 태그 비교, 일관성 유지, 교체 정책 등을 위한 복잡한 제어 로직이 필요하여 더 많은 실리콘 면적과 전력을 소모합니다.
-
-결론적으로, 캐시는 범용 CPU의 불규칙한 작업에 적합하지만, NPU의 정형화된 고성능 연산에는 **SPM이 성능, 효율성, 예측 가능성 측면에서 더 우월한 아키텍처**입니다.
+NPU의 정형화된 작업 특성을 고려하여, 예측 가능성, 효율성, 하드웨어 단순성을 극대화하기 위해 하드웨어 관리형 캐시(Cache) 대신 소프트웨어 관리형 SPM(Scratchpad)을 메모리 계층의 중심으로 채택했습니다.
 
 ---
 
-## 4. RISC-V (Py-V) 연동 방식
+## 3. RISC-V (Py-V) 연동 방식
 
-NPU는 단독으로 동작하지 않으며, RISC-V CPU(Py-V)의 제어를 받습니다. 두 가지 연동 방식을 지원합니다.
+NPU는 RISC-V CPU(Py-V)의 제어를 받으며, 두 가지 연동 방식을 지원합니다.
 
 - **Loose-Coupled (느슨한 결합):**
   - **방식:** MMIO(Memory-Mapped I/O)를 사용합니다.
@@ -105,13 +54,57 @@ NPU는 단독으로 동작하지 않으며, RISC-V CPU(Py-V)의 제어를 받습
 
 ---
 
-## 5. 클럭 및 모듈 구조
+## 4. 전체 아키텍처 다이어그램
 
-- **클럭 구조:** 현재 모든 컴포넌트가 단일 클럭(1.2 GHz)으로 동작하는 동기식 모델입니다. 향후 실제 SoC와 유사하게 CPU, NPU 등 각 도메인이 독립적인 클럭을 갖는 **비동기 클럭 도메인**으로 확장될 예정입니다.
+### 4.1. NPU 메모리 계층 (Cluster 기반)
 
-- **모듈 구조:**
-  - **`pyv_npu/ir`**: ONNX 모델을 내부 IR로 변환합니다.
-  - **`pyv_npu/compiler`**: IR을 NPU 프로그램으로 컴파일합니다.
-  - **`pyv_npu/runtime`**: 스케줄러, 리소스 모델, 시뮬레이터 등 실행의 핵심 로직을 포함합니다.
-  - **`pyv_npu/bridge`**: Py-V와의 연동(MMIO)을 담당합니다.
-  - **`py-v/`**: 독립적인 RISC-V CPU 시뮬레이터입니다.
+```
+[DRAM/HBM (L3, Off-chip, 100-200 cycles)]
+  │
+  └─ DMA/NoC (256 GB/s, Queue Depth)
+      │
+      └─ [L2 SPM (Shared On-chip, MB-level, 10-20 cycles)]
+            │
+            └─ NPU Cluster
+                │
+                ├─ [Input/Output Buffers (FIFO)]
+                │
+                └─ [L1 SPM (Local, 수백 KB, 2-4 cycles)]
+                      │
+                      └─ [L0 SPM (Tile-level, 수 KB, 0.5-1 cycle)]
+                            │
+                            └─ [TC/VC Compute Engines]
+```
+
+### 4.2. 전체 데이터 흐름
+
+```
+[RISC-V Core (Py-V)]
+  ├─ Custom ISA (Tight-Coupled) ─┐
+  │                               │
+  └─ MMIO/CSR (Loose-Coupled) ────┼─→ [NPU Cluster]
+                                  │
+[Shared SPM/RegFile] ← NoC ──────┼─→ [Input Buffer]
+                                  │
+                                  └─→ [L2 SPM] → [L1 SPM] → [L0 SPM]
+                                        │
+                                        └─→ [TC/VC Array] → [Output Buffer] → DMA → [DRAM/HBM]
+```
+- **Miss Flow**: TC → L0 Miss → L1 Miss → L2 Miss → Buffer → NoC → DRAM.
+- **최적화**: Double Buffering으로 Compute와 I/O를 중첩시켜 Latency Hiding.
+
+---
+
+## 5. 아키텍처 확장 계획 (Architecture Extension Plans)
+
+현재 아키텍처는 SPM(Scratchpad Memory) 기반의 동기식 클럭 모델을 중심으로 설계되었으나, 시뮬레이터의 정확도와 활용성을 높이기 위해 다음과 같은 확장 계획을 고려합니다.
+
+### 5.1. 캐시 시스템 도입 (Cache System Integration)
+
+- **L1/L2/L3 캐시 모델**: 현재의 SPM 중심 설계 외에, 연구 및 비교 분석을 목적으로 하드웨어 관리형 캐시 시스템 도입을 고려할 수 있습니다.
+  - **L1 캐시**: `Py-V` RISC-V 코어에 L1 캐시를 추가하여, 특히 `Tight-Coupled` 모드에서의 제어 오버헤드를 더 정확하게 모델링합니다.
+  - **L2/L3 공유 캐시**: CPU와 NPU 클러스터가 공유하는 L2 또는 L3 캐시를 구현하여, 불규칙한 메모리 접근 패턴에 대한 대응 및 시스템 레벨의 데이터 흐름을 분석합니다.
+
+### 5.2. 비동기 클럭 도메인 (Asynchronous Clock Domains)
+
+- **독립 클럭 속도**: 현재의 단일 클럭(1.2 GHz) 구조에서 나아가, 실제 SoC와 유사하게 CPU, TC, VC 등 주요 컴포넌트가 각기 다른 클럭 속도를 갖는 비동기 클럭 도메인을 구현합니다. 이를 통해 전력 및 성능 분석의 현실성을 높입니다.

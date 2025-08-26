@@ -1,3 +1,9 @@
+V250826a
+  - Double Buffering 기능 구현 (SCH-02):
+    - 연산(Compute)과 데이터 전송(DMA)을 중첩 실행하여 NPU 효율을 높이는 Double Buffering 기능을 구현.
+    - 스케줄러가 LOAD/STORE와 MatMul 같은 연산을 독립적으로 스케줄링하고, 다중 DMA 채널과 SPM 뱅크 등 리소스를 개별적으로 추적하도록 수정.
+    - `test_double_buffering_overlap` 테스트를 추가하여, 연산 중에 다음 연산을 위한 데이터 로딩이 중첩되어 일어나는 것을 검증.
+
 V250824a
   - 시뮬레이션 레벨 파라미터 명확성 개선:
     - 캐시 레벨과의 혼동을 피하기 위해 시뮬레이션 레벨 파라미터 이름을 `level`에서 `sim_level`로 변경.
