@@ -1,3 +1,18 @@
+V250826c
+  - 칸반 보드와 코드베이스 상태 동기화:
+    - `pyv_npu` 코드베이스 분석을 통해 `INT-01 | Py-V MMIO 연동 훅 구현` 작업의 핵심 로직이 `bridge/mem.py`에 이미 구현되었음을 확인.
+    - 분석 결과에 따라 칸반 보드의 `INT-01` 항목을 `Ready`에서 `Done` 상태로 이동하여 현재 개발 상태를 정확히 반영하도록 수정.
+    - 칸반 보드의 '다음 작업 우선순위' 목록을 최신 상태로 업데이트.
+
+V250826b
+  - 문서 구조 재정리 및 계획 업데이트:
+    - 여러 PRD 및 아키텍처 문서를 검토하고, 중복 내용을 통합하여 `system_architecture.md`와 `feature_roadmap.md`를 최신 상태로 업데이트.
+    - 오래되거나 통합된 문서들(`NPU_Simulator_Memory_Hierarchy.md`, `system_analysis.md` 등)을 `archive` 폴더로 이동하여 문서 구조를 명확히 함.
+    - 메인 PRD(`docs/prd/README.md`)에 세부 PRD들의 요약 정보를 추가하여 중앙 인덱스 역할을 강화.
+  - 칸반 보드 정리 및 우선순위 정의:
+    - 칸반 보드를 분석하여 현재 가장 우선순위가 높은 5개의 작업을 식별.
+    - 분석 결과를 `kanban_board.md` 문서 상단에 추가하고, 완료된 항목을 정리하여 보드의 가독성을 높임.
+
 V250826a
   - Double Buffering 기능 구현 (SCH-02):
     - 연산(Compute)과 데이터 전송(DMA)을 중첩 실행하여 NPU 효율을 높이는 Double Buffering 기능을 구현.
