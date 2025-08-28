@@ -44,9 +44,12 @@ def _map_to_loose_program(g: Graph) -> Program:
             # and the output needs to be stored back to DRAM.
 
             # Get original tensor definitions from the graph
-            dram_input_a = NpuTensor.from_model_ir_tensor(g.tensors[n.inputs[0]])
-            dram_input_b = NpuTensor.from_model_ir_tensor(g.tensors[n.inputs[1]])
-            dram_output_c = NpuTensor.from_model_ir_tensor(g.tensors[n.outputs[0]])
+            try:
+                dram_input_a = NpuTensor.from_model_ir_tensor(g.tensors[n.inputs[0]])
+                dram_input_b = NpuTensor.from_model_ir_tensor(g.tensors[n.inputs[1]])
+                dram_output_c = NpuTensor.from_model_ir_tensor(g.tensors[n.outputs[0]])
+            except KeyError as e:
+                raise ValueError(f"Tensor {e} not found in graph tensor map for node {n.name}") from e
 
             # Create new tensor objects representing their location in SPM
             spm_input_a = dram_input_a.clone_with_suffix("_spm")
@@ -71,29 +74,22 @@ def _map_to_loose_program(g: Graph) -> Program:
         
         else:
             # --- Logic for other ops (e.g., GELU, Add) ---
-            # These ops are assumed to operate on tensors that might already be in SPM.
-            
-            # Resolve input tensors: use SPM version if available
-            input_tensors = []
-            for t_name in n.inputs:
-                if t_name in spm_tensor_map:
-                    input_tensors.append(spm_tensor_map[t_name])
-                else:
-                    # If not in SPM map, assume it's a graph-level input/initializer from DRAM
-                    input_tensors.append(NpuTensor.from_model_ir_tensor(g.tensors[t_name]))
+            # Decompose into LOAD-COMPUTE-STORE as well for now.
+            input_tensors_dram = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in n.inputs]
+            output_tensors_dram = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in n.outputs]
 
-            # For simplicity, assume outputs of these ops also go to SPM
-            # and create a new tensor name for them.
-            output_tensors = []
-            for t_name in n.outputs:
-                dram_tensor = NpuTensor.from_model_ir_tensor(g.tensors[t_name])
-                spm_tensor = dram_tensor.clone_with_suffix("_spm")
-                output_tensors.append(spm_tensor)
-                spm_tensor_map[t_name] = spm_tensor
+            input_tensors_spm = [t.clone_with_suffix("_spm") for t in input_tensors_dram]
+            output_tensors_spm = [t.clone_with_suffix("_spm") for t in output_tensors_dram]
 
-            npu_op = NPUOp(opcode=n.op_type, name=n.name, args=n.attrs.copy(), inputs=input_tensors, outputs=output_tensors)
-            _add_op_args(n, npu_op)
-            ops.append(npu_op)
+            for dram_t, spm_t in zip(input_tensors_dram, input_tensors_spm):
+                ops.append(NPUOp(opcode='LOAD', name=f"load_{n.name}_{dram_t.name}", inputs=[dram_t], outputs=[spm_t]))
+
+            compute_op = NPUOp(opcode=n.op_type, name=n.name, args=n.attrs.copy(), inputs=input_tensors_spm, outputs=output_tensors_spm)
+            _add_op_args(n, compute_op)
+            ops.append(compute_op)
+
+            for spm_t, dram_t in zip(output_tensors_spm, output_tensors_dram):
+                ops.append(NPUOp(opcode='STORE', name=f"store_{n.name}_{dram_t.name}", inputs=[spm_t], outputs=[dram_t]))
 
     npu_inputs = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.inputs]
     npu_outputs = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.outputs]

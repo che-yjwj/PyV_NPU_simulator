@@ -1,3 +1,12 @@
+V250828a
+  - L0 SPM 모델 구현 (MEM-01):
+    - `config.py`에 L0 SPM 관련 파라미터(size, latency)를 추가.
+    - `resources.py`에 TC별 L0 캐시 상태를 추적하는 `L0SPMTracker` 클래스를 구현.
+    - 스케줄러가 TC 연산 시 L0 히트/미스를 고려하여 지연 시간을 계산하도록 `scheduler.py`를 수정.
+  - 스케줄러 및 테스트 안정화:
+    - 리소스 경합 및 의존성 stall을 더 정확하게 계산하도록 스케줄러의 연산 선택 로직을 리팩토링.
+    - `mapper`, `onnx_importer`의 테스트 불일치 및 `DRAM` 충돌 감지 로직을 수정하여 전체 테스트 스위치가 통과하도록 안정화.
+
 V250826c
   - 칸반 보드와 코드베이스 상태 동기화:
     - `pyv_npu` 코드베이스 분석을 통해 `INT-01 | Py-V MMIO 연동 훅 구현` 작업의 핵심 로직이 `bridge/mem.py`에 이미 구현되었음을 확인.

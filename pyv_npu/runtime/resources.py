@@ -1,7 +1,35 @@
 from __future__ import annotations
 from ..config import SimConfig
-from typing import List, Tuple
+from typing import List, Tuple, Dict
+from ..isa.npu_ir import Tensor, DTYPE_MAP
 from .memory import DramAddressMapper
+
+class L0SPMTracker:
+    """Models the L0 SPM cache for a single Tensor Core."""
+    def __init__(self, config: SimConfig):
+        self.size_bytes = config.l0_spm_size_kb * 1024
+        self.latency = config.l0_spm_latency_cycles
+        self.resident_tensors: Dict[str, Tensor] = {}
+        self.timeline: List[Tuple[int, int]] = []
+
+    def probe_hit(self, tensors: List[Tensor]) -> bool:
+        """Checks if all required tensors are resident in the L0 SPM."""
+        return all(t.name in self.resident_tensors for t in tensors)
+
+    def get_required_load_bytes(self, tensors: List[Tensor]) -> int:
+        """Calculates the total bytes that need to be loaded into L0."""
+        bytes_to_load = 0
+        for t in tensors:
+            if t.name not in self.resident_tensors:
+                bytes_to_load += t.num_elements * DTYPE_MAP.get(t.dtype, 1)
+        return bytes_to_load
+
+    def commit_load(self, tensors: List[Tensor]):
+        """Evicts old tensors and loads new ones (simplified LRU)."""
+        # This is a very simplified cache replacement policy.
+        # A real implementation would need a more sophisticated LRU/FIFO tracking.
+        self.resident_tensors = {t.name: t for t in tensors}
+
 
 class BandwidthTracker:
     """Models a resource with a fixed bandwidth (e.g., DRAM, NoC)."""
@@ -62,15 +90,12 @@ class BankTracker:
             self.bank_timelines[bank_idx].sort()
 
 class DramBankTracker:
-    """Models DRAM channel and bank contention. Refactored for probe/commit."""
+    """Models DRAM channel and bank contention using timelines."""
     def __init__(self, config: SimConfig):
         self.config = config
         self.mapper = DramAddressMapper(config)
         self.num_channels = config.dram_channels
-        self.num_banks_per_channel = config.dram_banks_per_channel
-        self.bank_free_time: List[List[int]] = [
-            [0] * self.num_banks_per_channel for _ in range(self.num_channels)
-        ]
+        self.channel_timelines: List[List[Tuple[int, int]]] = [[] for _ in range(self.num_channels)]
         self.collisions = 0
 
     def get_transfer_cycles(self, num_bytes: int) -> int:
@@ -85,21 +110,26 @@ class DramBankTracker:
             duration = self.get_transfer_cycles(num_bytes)
             return start_cycle, duration, "NONE", -1, -1
 
-        channel_id, bank_id = self.mapper.map(address)
+        channel_id, bank_id = self.mapper.map(address) # bank_id is not used in this timeline model
         duration = self.get_transfer_cycles(num_bytes)
         if duration == 0:
             return start_cycle, 0, "NONE", channel_id, bank_id
 
-        bank_available_cycle = self.bank_free_time[channel_id][bank_id]
-        actual_start = max(start_cycle, bank_available_cycle)
-        stall_reason = "RESOURCE_DRAM_BANK" if actual_start > start_cycle else "NONE"
+        last_end_cycle = self.channel_timelines[channel_id][-1][0] if self.channel_timelines[channel_id] else 0
+        actual_start = max(start_cycle, last_end_cycle)
         
+        stall_reason = "RESOURCE_DRAM_BANK" if actual_start > start_cycle else "NONE"
+        if stall_reason == "RESOURCE_DRAM_BANK":
+            self.collisions += 1
+
         return actual_start, duration, stall_reason, channel_id, bank_id
 
     def commit_transfer(self, channel_id: int, bank_id: int, start_cycle: int, duration: int):
         if channel_id < 0:
             return # Address was None, nothing to commit
-        self.bank_free_time[channel_id][bank_id] = start_cycle + duration
+        end_cycle = start_cycle + duration
+        self.channel_timelines[channel_id].append((end_cycle, duration))
+        self.channel_timelines[channel_id].sort()
 
 class IssueQueueTracker:
     """Models the NPU's internal command issue queue."""
