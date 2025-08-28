@@ -88,7 +88,8 @@ def generate_report_json(schedule: List[ScheduleItem], config: SimConfig, stats:
     return report_data
 
 def generate_html_report(report_data: Dict[str, Any], output_dir: Path):
-    if not report_data or not report_data['timeline']: return
+    if not report_data or not report_data['timeline'] or px is None:
+        return
     output_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(report_data['timeline'])
     required_cols = ['compute', 'fill_drain']
