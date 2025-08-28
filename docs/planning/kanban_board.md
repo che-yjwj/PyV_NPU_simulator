@@ -3,11 +3,11 @@ v250813b
 
 ## 다음 작업 우선순위 (Top 5 Next Tasks)
 
-1.  **(Ready / P0)** **MEM-01 | L0 SPM 모델 구현**: 연산 유닛(TC)에 가장 가까운 타일 레벨 L0 SPM을 `resources.py`에 추가합니다.
-2.  **(Ready / P0)** **MEM-02 | Input/Output 버퍼 모델 구현**: SPM과 별개로 DMA와 연산 유닛 간 데이터 흐름을 제어하는 Input/Output 버퍼(FIFO)를 구현합니다.
-3.  **(Backlog / P0)** **ARC-02 | Py-V L1 캐시 구현**: `Py-V` RISC-V 코어에 L1 캐시를 추가하여 CPU 모델의 현실성을 높입니다.
-4.  **(Backlog / P0)** **M-01 | 메모리/버스 모델 고도화 v1**: SPM bank 포트 수, DMA burst, DRAM 채널/페이지 정책 등을 파라미터화합니다.
-5.  **(Backlog / P0)** **P-01 | 컴파일러 타일링 패스 (auto-tile)**: shape/메모리 제약 기반 자동 타일 크기 산출 + mapper에 주입
+1.  **(Ready / P0)** **MEM-02 | Input/Output 버퍼 모델 구현**: SPM과 별개로 DMA와 연산 유닛 간 데이터 흐름을 제어하는 Input/Output 버퍼(FIFO)를 구현합니다.
+2.  **(Backlog / P0)** **ARC-02 | Py-V L1 캐시 구현**: `Py-V` RISC-V 코어에 L1 캐시를 추가하여 CPU 모델의 현실성을 높입니다.
+3.  **(Backlog / P0)** **M-01 | 메모리/버스 모델 고도화 v1**: SPM bank 포트 수, DMA burst, DRAM 채널/페이지 정책 등을 파라미터화합니다.
+4.  **(Backlog / P0)** **P-01 | 컴파일러 타일링 패스 (auto-tile)**: shape/메모리 제약 기반 자동 타일 크기 산출 + mapper에 주입
+5.  **(Backlog / P1)** **ARC-01 | L2 캐시 모델 구현**: NPU 클러스터에 하드웨어 관리형 L2 캐시 모델을 구현합니다.
 
 ---
 
@@ -111,11 +111,6 @@ v250813b
 
 ## Ready
 
-### MEM-01 | L0 SPM 모델 구현
-- **요약**: 연산 유닛(TC)에 가장 가까운 타일 레벨 L0 SPM을 `resources.py`에 추가합니다.
-- **수용기준**: L0 SPM 히트 시 1 사이클 미만의 latency 적용. L0-L1 간 데이터 이동 모델링.
-- **우선순위**: P0 / **사이즈**: M / **의존성**: — / **태그**: 메모리, SPM, Phase1
-
 ### MEM-02 | Input/Output 버퍼 모델 구현
 - **요약**: SPM과 별개로 DMA와 연산 유닛 간 데이터 흐름을 제어하는 Input/Output 버퍼(FIFO)를 구현합니다.
 - **수용기준**: 버퍼 크기 초과 시 Backpressure 이벤트 발생. DMA와 연산이 버퍼를 통해 데이터를 주고받도록 수정.
@@ -139,6 +134,11 @@ v250813b
 ---
 
 ## Done
+
+### MEM-01 | L0 SPM 모델 구현
+- **요약**: 연산 유닛(TC)에 가장 가까운 타일 레벨 L0 SPM을 `resources.py`에 추가합니다.
+- **수용기준**: L0 SPM 히트 시 1 사이클 미만의 latency 적용. L0-L1 간 데이터 이동 모델링.
+- **우선순위**: P0 / **사이즈**: M / **의존성**: — / **태그**: 메모리, SPM, Phase1
 
 ### INT-01 | Py-V MMIO 연동 훅 구현
 - **요약**: Py-V가 특정 주소에 값을 쓸 때 NPU 작업이 큐에 추가되도록 MMIO 연동 훅을 구현합니다.

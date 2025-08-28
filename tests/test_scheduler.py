@@ -46,8 +46,10 @@ def test_scheduler_stall_reason_resource():
     schedule, stats = event_driven_schedule(prog, config)
 
     # Find the second matmul to run
-    op_starts = sorted([(item.start_cycle, item) for item in schedule if item.op.opcode == 'MatMul'])
-    second_op_item = op_starts[1][1]
+    op_starts = sorted([(item.start_cycle, item.op.name) for item in schedule if item.op.opcode == 'MatMul'])
+    assert len(op_starts) == 2
+    second_op_name = op_starts[1][1]
+    second_op_item = next(item for item in schedule if item.op.name == second_op_name)
 
     # The second op should have a resource stall waiting for the first to finish
     assert second_op_item.stall_cycles > 0

@@ -34,6 +34,8 @@ class SimConfig:
     # Core NPU parameters (from PRD section 9)
     tc: int = 2
     vc: int = 4
+    l0_spm_size_kb: int = 64
+    l0_spm_latency_cycles: int = 1
     spm_banks: int = 8
     spm_capacity_kib: int = 2048  # 2 MiB
     systolic_array_height: int = 16
