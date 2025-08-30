@@ -1,3 +1,9 @@
+V250831a
+  - 문서와 코드베이스 상태 동기화 (docs/sync-codebase-state):
+    - `MEM-02` (I/O 버퍼 모델) 완료에 따라 `docs/planning/kanban_board.md`의 상태를 `In-Progress`에서 `Done`으로 업데이트.
+    - `README.md`의 설정 테이블과 아키텍처 다이어그램에 `L0 SPM` 및 `I/O Buffer` 관련 내용을 추가하여 최신 아키텍처를 반영.
+    - `docs/architecture` 아래의 문서들이 최신 상태임을 확인하고, 전체적인 문서 일관성을 검토.
+
 V250828a
   - L0 SPM 모델 구현 (MEM-01):
     - `config.py`에 L0 SPM 관련 파라미터(size, latency)를 추가.
