@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from typing import List, Dict
 from ..ir.model_ir import Graph, Node
@@ -36,46 +35,57 @@ def _map_to_loose_program(g: Graph) -> Program:
 
     spm_tensor_map: Dict[str, NpuTensor] = {}
 
-    # Load all initializers into SPM at the beginning
-    for t_name in g.initializers:
-        dram_t = NpuTensor.from_model_ir_tensor(g.tensors[t_name])
-        spm_t = dram_t.clone_with_suffix("_spm")
-        ops.append(NPUOp(opcode='LOAD', name=f"load_init_{dram_t.name}", inputs=[dram_t], outputs=[spm_t]))
-        spm_tensor_map[t_name] = spm_t
+    # Load initializers first
+    for init_name in g.initializers:
+        try:
+            dram_t = NpuTensor.from_model_ir_tensor(g.tensors[init_name])
+            spm_t = dram_t.clone_with_suffix("_spm")
+            ops.append(NPUOp(opcode='LOAD', name=f"load_init_{dram_t.name}", inputs=[dram_t], outputs=[spm_t]))
+            spm_tensor_map[init_name] = spm_t
+        except KeyError as e:
+            raise ValueError(f"Error mapping initializer: Tensor {e} not found in graph tensor map.") from e
 
     for n in g.nodes:
-        input_tensors_spm = []
-        for t_name in n.inputs:
-            # Check if it's an initializer or an intermediate tensor
-            if t_name in spm_tensor_map:
-                input_tensors_spm.append(spm_tensor_map[t_name])
-            else:
-                # It must be a primary input, load it
-                dram_t = NpuTensor.from_model_ir_tensor(g.tensors[t_name])
-                spm_t = dram_t.clone_with_suffix("_spm")
-                ops.append(NPUOp(opcode='LOAD', name=f"load_input_{dram_t.name}", inputs=[dram_t], outputs=[spm_t]))
-                input_tensors_spm.append(spm_t)
-                spm_tensor_map[t_name] = spm_t
+        try:
+            input_tensors_spm = []
+            for t_name in n.inputs:
+                if t_name in spm_tensor_map:
+                    input_tensors_spm.append(spm_tensor_map[t_name])
+                else:
+                    dram_t = NpuTensor.from_model_ir_tensor(g.tensors[t_name])
+                    spm_t = dram_t.clone_with_suffix("_spm")
+                    ops.append(NPUOp(opcode='LOAD', name=f"load_input_{dram_t.name}", inputs=[dram_t], outputs=[spm_t]))
+                    input_tensors_spm.append(spm_t)
+                    spm_tensor_map[t_name] = spm_t
 
-        output_tensors_spm = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]).clone_with_suffix("_spm") for t_name in n.outputs]
+            output_tensors_spm = []
+            for t_name in n.outputs:
+                 dram_t = NpuTensor.from_model_ir_tensor(g.tensors[t_name])
+                 spm_t = dram_t.clone_with_suffix("_spm")
+                 output_tensors_spm.append(spm_t)
+                 spm_tensor_map[t_name] = spm_t
 
-        compute_op = NPUOp(opcode=n.op_type, name=n.name, args=n.attrs.copy(), inputs=input_tensors_spm, outputs=output_tensors_spm)
-        _add_op_args(n, compute_op)
-        ops.append(compute_op)
+            compute_op = NPUOp(opcode=n.op_type, name=n.name, args=n.attrs.copy(), inputs=input_tensors_spm, outputs=output_tensors_spm)
+            _add_op_args(n, compute_op)
+            ops.append(compute_op)
 
-        for i, out_name in enumerate(n.outputs):
-            spm_tensor_map[out_name] = output_tensors_spm[i]
+        except KeyError as e:
+            raise ValueError(f"Error mapping node {n.name}: Tensor {e} not found in graph tensor map.") from e
 
-    # Store the final graph outputs
+    # Final STORE operations for graph outputs
     for out_name in g.outputs:
         if out_name in spm_tensor_map:
-            spm_t = spm_tensor_map[out_name]
-            dram_t = NpuTensor.from_model_ir_tensor(g.tensors[out_name])
-            ops.append(NPUOp(opcode='STORE', name=f"store_output_{dram_t.name}", inputs=[spm_t], outputs=[dram_t]))
+            try:
+                spm_t = spm_tensor_map[out_name]
+                dram_t = NpuTensor.from_model_ir_tensor(g.tensors[out_name])
+                ops.append(NPUOp(opcode='STORE', name=f"store_output_{dram_t.name}", inputs=[spm_t], outputs=[dram_t]))
+            except KeyError as e:
+                raise ValueError(f"Error mapping output: Tensor {e} not found in graph tensor map.") from e
 
     npu_inputs = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.inputs]
     npu_outputs = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.outputs]
     npu_initializers = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.initializers]
+    
     return Program(ops=ops, inputs=npu_inputs, outputs=npu_outputs, initializers=npu_initializers)
 
 def _map_to_tight_program(g: Graph) -> Program:

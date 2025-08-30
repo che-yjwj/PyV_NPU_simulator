@@ -4,34 +4,20 @@ from .model_ir import Graph, Node, Tensor
 from typing import List, Dict
 import numpy as np
 
-try:
-    import onnx
-    from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE
-except Exception:
-    onnx = None
+import onnx
+
 
 def _onnx_dtype_to_numpy(onnx_dtype: int) -> np.dtype:
-    return TENSOR_TYPE_TO_NP_TYPE.get(onnx_dtype, np.float32) # Default to float32
+    # In newer ONNX versions, the mapping is done via a helper function.
+    try:
+        return onnx.helper.tensor_dtype_to_np_dtype(onnx_dtype)
+    except KeyError:
+        # Provide a fallback for unknown types, similar to the old .get()
+        return np.float32 # Default to float32
 
 def load_onnx_as_model_ir(path: str) -> Graph:
     """Loads an ONNX model into the Model IR, extracting tensor shapes and dtypes."""
-    if onnx is None:
-        nodes: List[Node] = [
-            Node(name="matmul0", op_type="MatMul", inputs=["x","w0"], outputs=["y0"]),
-            Node(name="gelu0", op_type="GELU", inputs=["y0"], outputs=["y1"]),
-            Node(name="matmul1", op_type="MatMul", inputs=["y1","w1"], outputs=["y2"]),
-            Node(name="softmax0", op_type="Softmax", inputs=["y2"], outputs=["y"]),
-        ]
-        tensors: Dict[str, Tensor] = {
-            "x": Tensor("x", (1, 128), np.float16),
-            "w0": Tensor("w0", (128, 128), np.float16),
-            "y0": Tensor("y0", (1, 128), np.float16),
-            "y1": Tensor("y1", (1, 128), np.float16),
-            "w1": Tensor("w1", (128, 128), np.float16),
-            "y2": Tensor("y2", (1, 128), np.float16),
-            "y": Tensor("y", (1, 128), np.float16),
-        }
-        return Graph(nodes=nodes, inputs=["x"], outputs=["y"], tensors=tensors)
+    
 
     model = onnx.load(path)
     g = model.graph

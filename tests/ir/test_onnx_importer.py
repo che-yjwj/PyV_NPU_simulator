@@ -1,17 +1,8 @@
 
 import pytest
-import os
-from unittest.mock import MagicMock
-
-# Mock the onnx library at the top level for all tests in this file
-# This is a simple way to avoid the DecodeError if a real onnx model is not present.
-# In a real-world scenario, we would use a small, valid ONNX file for testing.
-try:
-    import onnx
-    from onnx import helper
-    from onnx import TensorProto
-except ImportError:
-    onnx = MagicMock()
+import onnx
+from onnx import helper
+from onnx import TensorProto
 
 
 from pyv_npu.ir.onnx_importer import load_onnx_as_model_ir
@@ -48,7 +39,7 @@ def test_load_onnx_model(monkeypatch, mock_onnx_model):
 
     # Mock onnx.load to return our fake model instead of reading the file
     mock_load = lambda path: mock_onnx_model
-    monkeypatch.setattr(onnx, "load", mock_load)
+    monkeypatch.setattr("pyv_npu.ir.onnx_importer.onnx.load", mock_load)
 
     # Load the model using the importer
     graph = load_onnx_as_model_ir(onnx_model_path)
