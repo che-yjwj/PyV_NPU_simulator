@@ -29,6 +29,7 @@ def mock_simple_model():
     return helper.make_model(graph, producer_name='pytest-tight-mode')
 
 def test_tight_vs_loose_overhead_comparison(monkeypatch, mock_simple_model):
+    print("\nDEBUG: Testing test_tight_vs_loose_overhead_comparison...")
     """Compares tight vs loose mode to ensure control overhead is added."""
     monkeypatch.setattr(onnx, "load", lambda path: mock_simple_model)
     model_ir = load_onnx_as_model_ir("dummy_path")

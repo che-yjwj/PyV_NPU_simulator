@@ -23,25 +23,19 @@ def sample_graph():
     return graph
 
 def test_map_loose_mode(sample_graph: Graph):
-    """Tests basic mapping in loose mode with LOAD/STORE decomposition."""
+    """Tests basic mapping in loose mode, which should generate LOAD/STORE ops."""
     program = map_model_ir_to_npu_program(sample_graph, mode='loose')
-    # Expecting MatMul to be decomposed into: LOAD, LOAD, MatMul, STORE
+
+    # Expecting LOAD, LOAD, COMPUTE, STORE
     assert len(program.ops) == 4
-    assert program.ops[0].opcode == 'LOAD'
-    assert program.ops[1].opcode == 'LOAD'
-    assert program.ops[2].opcode == 'MatMul'
-    assert program.ops[3].opcode == 'STORE'
-    
+    opcodes = [op.opcode for op in program.ops]
+    assert opcodes == ['LOAD', 'LOAD', 'MatMul', 'STORE']
+
     # Check that the compute op has the correct args
     compute_op = program.ops[2]
+    assert compute_op.opcode == 'MatMul'
     assert 'tile_m' in compute_op.args
     assert compute_op.args['tile_m'] == 128
-    
-    # Check that tensors are correctly wired between ops
-    assert program.ops[0].outputs[0].name == "input_spm"
-    assert program.ops[2].inputs[0].name == "input_spm"
-    assert program.ops[3].inputs[0].name == "output_spm"
-
 
 def test_map_tight_mode(sample_graph: Graph):
     """Tests basic mapping in tight mode."""

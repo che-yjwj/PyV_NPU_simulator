@@ -16,10 +16,13 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
+dependencies = [
+  "PyYAML",
+]
 
 [project.optional-dependencies]
 dev = ["pytest", "networkx", "onnx"]
-viz = ["graphviz", "plotly"]
+viz = ["graphviz", "plotly", "pandas"]
 
 [project.scripts]
 pyv-npu = "pyv_npu.cli.main:main"
