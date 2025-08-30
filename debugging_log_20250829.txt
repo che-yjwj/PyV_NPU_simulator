@@ -1,0 +1,48 @@
+Debugging Session Log - 2025-08-29
+
+**Initial Request:**
+User asked to update the "gemini cli" (identified as `pyv-npu`).
+
+**Initial Project State:**
+The project was a Git repository with uncommitted changes and untracked files.
+
+**Problem Identification (First Pass):**
+- Ran `pytest` to identify failing tests.
+- Identified two failing tests:
+    - `tests/test_dram_policy_comparison.py::test_dram_policy_collision_comparison`
+    - `tests/test_scheduler.py::test_scheduler_stall_reason_dep`
+
+**Fix Attempt 1 (tests/test_dram_policy_comparison.py):**
+- **Diagnosis:** The `LOAD` operations in `test_dram_policy_collision_comparison` were created without output tensors. The scheduler's `calculate_op_timing` for `LOAD` ops would return early if `outputs` was empty, preventing `probe_transfer` from being called and thus no DRAM collisions were detected.
+- **Action:** Modified `tests/test_dram_policy_comparison.py` to add output tensors (`t_in1_spm`, `t_in2_spm`) to the `LOAD` operations.
+- **Result:**
+    - `test_dram_policy_collision_comparison` passed.
+    - `test_scheduler_stall_reason_dep` also passed (likely due to the underlying scheduler logic now correctly processing `LOAD` ops).
+
+**Problem Identification (Second Pass):**
+- After Fix Attempt 1, new failures emerged in `tests/test_smoke.py`:
+    - `test_smoke`
+    - `test_l2_simulator_smoke`
+- **Diagnosis:** Both tests failed because `TC` (Tensor Core) and `VC` (Vector Core) engines were not being used; only `DMA` operations were observed. This indicated that compute operations (`MatMul`, `Erf`, `Softmax`) were not being scheduled. The hypothesis was that the inputs to these ops were not correctly appearing in the `tensor_in_buffer` (managed by `IOBufferTracker`).
+
+**Fix Attempt 2 (pyv_npu/compiler/mapper.py - First Approach):**
+- **Initial Hypothesis:** The `_map_to_loose_program` function in `mapper.py` might not be correctly handling tensors that are already in SPM, leading to redundant `LOAD`s and potentially disrupting the data flow.
+- **Action:** Replaced the entire `_map_to_loose_program` function with a unified logic that aimed to correctly utilize `spm_tensor_map` to avoid redundant loads.
+- **Result:** The tests still failed with the exact same `test_smoke.py` errors. This indicated that the diagnosis was either incorrect or incomplete, and the fix did not address the root cause.
+
+**Fix Attempt 3 (pyv_npu/compiler/mapper.py - Second Approach):**
+- **Refined Diagnosis:** A deeper analysis of `_map_to_loose_program` revealed a more fundamental flaw. The current implementation applies a strict `LOAD-COMPUTE-STORE` pattern for every node in the graph. This means:
+    1. Intermediate results are loaded into SPM.
+    2. Computation occurs.
+    3. The result is immediately `STORE`d back to DRAM.
+    4. The `STORE` operation, as implemented in the scheduler, pops the tensor's data from the `IOBufferTracker`.
+    5. If a subsequent compute operation requires this intermediate result, it finds the `IOBuffer` empty for that tensor, leading to a `RESOURCE_IO_BUFFER_EMPTY` stall and preventing the compute op from ever running.
+- **Action:** Rewrote the `_map_to_loose_program` function to implement a more intelligent data management strategy:
+    - Initializers and primary inputs are `LOAD`ed into SPM.
+    - Intermediate results of compute operations are kept in SPM (tracked by `spm_tensor_map`) and are *not* immediately `STORE`d to DRAM.
+    - Only the final graph outputs are `STORE`d to DRAM.
+- **Current Status:** The `pytest` command for this fix was initiated and is currently running. The session was ended by the user before the test results were available.
+
+**Next Steps (for future session):**
+- Analyze the results of the last `pytest` run to determine if Fix Attempt 3 resolved the `test_smoke.py` failures.
+- If issues persist, further investigate the interaction between the `IOBufferTracker` and the scheduler's `tensor_in_buffer` logic, or re-examine the `calculate_op_timing` function for compute operations.

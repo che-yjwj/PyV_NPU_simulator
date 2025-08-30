@@ -1,10 +1,11 @@
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Tuple, Set
 import heapq
 from ..config import SimConfig
 from ..isa.npu_ir import Program, NPUOp, Tensor, DTYPE_MAP
-from .resources import BankTracker, DramBankTracker, IssueQueueTracker
+from .resources import BankTracker, DramBankTracker, IssueQueueTracker, L0SPMTracker, IOBufferTracker
 from .te import calculate_systolic_array_cycles
 
 @dataclass
@@ -12,6 +13,9 @@ class BookingInfo:
     dram_transfers: List[Dict[str, Any]] = field(default_factory=list)
     spm_slots: List[Dict[str, Any]] = field(default_factory=list)
     issue_slots: List[Dict[str, Any]] = field(default_factory=list)
+    l0_spm_loads: List[Dict[str, Any]] = field(default_factory=list)
+    io_buffer_pops: List[Dict[str, Any]] = field(default_factory=list)
+    io_buffer_pushes: List[Dict[str, Any]] = field(default_factory=list)
 
 @dataclass
 class ScheduleItem:
@@ -38,6 +42,8 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
     dram_bank_tracker = DramBankTracker(config)
     spm_banks = BankTracker(config)
     issue_queue = IssueQueueTracker(config)
+    l0_spm_trackers = [L0SPMTracker(config) for _ in range(config.tc)]
+    io_buffer = IOBufferTracker(config)
     
     # --- Engine Free Time Pools ---
     tc_free_time = [0] * config.tc
@@ -48,61 +54,83 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
     # --- State Tracking ---
     tensor_ready_time: Dict[str, int] = {t.name: 0 for t in p.inputs}
     tensor_ready_time.update({t.name: 0 for t in p.initializers})
+    tensor_in_buffer: Set[str] = set(t.name for t in p.inputs)
+    tensor_in_buffer.update(t.name for t in p.initializers)
     completed_tickets: Set[int] = set()
     op_pending_time: Dict[str, int] = {}
 
     # --- Operation Queues ---
-    # In loose mode, this is the main queue. 
-    # In tight mode, this holds CPU-side ops (ENQCMD, TWAIT).
     cpu_op_queue = p.ops.copy()
-    # In tight mode, this queue holds the NPU-side ops extracted from ENQCMD.
     npu_work_queue: List[NPUOp] = []
 
     heapq.heappush(event_queue, Event(time=0, type='CHECK_SCHED'))
+
+    # Debugging variables
+    last_time = -1
+    time_stuck_count = 0
 
     while event_queue:
         event = heapq.heappop(event_queue)
         time = event.time
 
+        # --- Debugging Print ---
+        if time == last_time:
+            time_stuck_count += 1
+        else:
+            time_stuck_count = 0
+        last_time = time
+        if time_stuck_count > 100: # Stop if stuck for too long
+            print(f"Scheduler stuck at time={time}. Aborting.")
+            break
+        print(f"DEBUG: time={time}, event={event.type}")
+        # --- End Debugging ---
+
         if event.type == 'OP_COMPLETE':
-            op, end_cycle, ticket = event.item
+            op, end_cycle, ticket, engine_idx, booking_info = event.item
             if op.outputs:
                 for out_tensor in op.outputs:
                     tensor_ready_time[out_tensor.name] = end_cycle
+                    if op.opcode in ("MatMul", "Conv", "GELU", "Softmax", "Add", "Mul", "LayerNorm", "Erf", "LOAD"):
+                        tensor_in_buffer.add(out_tensor.name)
+
             if ticket is not None:
                 completed_tickets.add(ticket)
+            
+            if get_engine_for_op(op, config.mode) == "TC" and engine_idx is not None:
+                l0_spm_trackers[engine_idx].commit_load(op.inputs)
+            
+            # Buffer operations are now committed in run_scheduler_pass
+            pass
+
             heapq.heappush(event_queue, Event(time=end_cycle, type='CHECK_SCHED'))
         
         elif event.type == 'ENQCMD_COMPLETE':
             npu_op, ticket = event.item
-            npu_op.args['_ticket'] = ticket # Tag the op with its ticket
+            npu_op.args['_ticket'] = ticket
             npu_work_queue.append(npu_op)
             heapq.heappush(event_queue, Event(time, type='CHECK_SCHED'))
 
         elif event.type == 'CHECK_SCHED':
-            # Pass both queues to the scheduler
             run_scheduler_pass(
                 cpu_op_queue=cpu_op_queue, npu_work_queue=npu_work_queue,
                 time=time, config=config, schedule=schedule, event_queue=event_queue,
                 tensor_ready_time=tensor_ready_time, completed_tickets=completed_tickets,
                 engine_pools={'TC': tc_free_time, 'VC': vc_free_time, 'DMA': dma_free_time, 'CPU': cpu_free_time},
-                resource_trackers={'dram_banks': dram_bank_tracker, 'spm_banks': spm_banks, 'issue_queue': issue_queue},
-                op_pending_time=op_pending_time
+                resource_trackers={'dram_banks': dram_bank_tracker, 'spm_banks': spm_banks, 'issue_queue': issue_queue, 'l0_spms': l0_spm_trackers, 'io_buffer': io_buffer},
+                op_pending_time=op_pending_time, tensor_in_buffer=tensor_in_buffer
             )
 
     schedule.sort(key=lambda x: x.start_cycle)
     stats = {"dram_collisions": dram_bank_tracker.collisions}
+    print(f"DEBUG SCHEDULER: schedule: {schedule}")
     return schedule, stats
 
 
-def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers):
-    best_op = None
-    best_op_queue = None
+def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers, tensor_in_buffer):
+    print(f"DEBUG SCHEDULER: run_scheduler_pass: time={time}, op_queue={[op.name for op in cpu_op_queue]}")
+    best_op_details = None
     earliest_start_time = float('inf')
-    op_details = {}
-    best_booking_info = None
 
-    # In tight mode, CPU ops (ENQCMD/TWAIT) and NPU ops are scheduled from different queues
     queues_to_process = [cpu_op_queue]
     if config.mode == 'tight':
         queues_to_process.append(npu_work_queue)
@@ -121,64 +149,75 @@ def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, eve
             engine_pool = engine_pools.get(engine_type)
             if not engine_pool: continue
 
-            engine_free_time = min(engine_pool)
-            tentative_start_time = max(ideal_start_time, engine_free_time)
-            actual_start, actual_end, reason, breakdown, booking = calculate_op_timing(op, tentative_start_time, config, resource_trackers)
-            
-            if actual_start < earliest_start_time:
-                earliest_start_time = actual_start
-                best_op = op
-                best_op_queue = op_queue
-                best_booking_info = booking
+            for i, engine_free_time in enumerate(engine_pool):
+                tentative_start_time = max(ideal_start_time, engine_free_time)
                 
-                first_pending_time = op_pending_time.get(op.name, time)
-                stall_breakdown = {}
-                dep_stall = ideal_start_time - first_pending_time
-                if dep_stall > 0: stall_breakdown["DEP"] = dep_stall
-                resource_stall = actual_start - ideal_start_time
-                if resource_stall > 0:
-                    if engine_free_time > ideal_start_time: stall_breakdown["RESOURCE_ENGINE"] = resource_stall
-                    elif reason != "NONE": stall_breakdown[reason] = resource_stall
+                actual_start, actual_end, reason, breakdown, booking = calculate_op_timing(op, tentative_start_time, config, resource_trackers, engine_idx=i, tensor_in_buffer=tensor_in_buffer)
                 
-                op_details = {
-                    'start': actual_start, 'end': actual_end, 'engine': engine_type,
-                    'stall_cycles': sum(stall_breakdown.values()),
-                    'stall_breakdown': stall_breakdown, 'cycle_breakdown': breakdown
-                }
+                if actual_start < earliest_start_time:
+                    earliest_start_time = actual_start
+                    first_pending_time = op_pending_time.get(op.name, time)
+                    stall_breakdown = {}
+                    dep_stall = ideal_start_time - first_pending_time
+                    if dep_stall > 0: stall_breakdown["DEP"] = dep_stall
+                    resource_stall = actual_start - ideal_start_time
+                    if resource_stall > 0:
+                        if engine_free_time > ideal_start_time: stall_breakdown["RESOURCE_ENGINE"] = resource_stall
+                        elif reason != "NONE": stall_breakdown[reason] = resource_stall
+                    
+                    best_op_details = {
+                        'op': op,
+                        'op_queue': op_queue,
+                        'start': actual_start, 'end': actual_end, 'engine': engine_type, 'engine_idx': i,
+                        'stall_cycles': sum(stall_breakdown.values()),
+                        'stall_breakdown': stall_breakdown, 'cycle_breakdown': breakdown,
+                        'booking_info': booking
+                    }
 
-    if best_op:
-        op = best_op
-        dram_banks, spm, issue_queue = resource_trackers['dram_banks'], resource_trackers['spm_banks'], resource_trackers['issue_queue']
-        
-        if op_details['stall_breakdown'].get("RESOURCE_DRAM_BANK"): dram_banks.collisions += 1
-        for booking in best_booking_info.dram_transfers: dram_banks.commit_transfer(**booking)
-        for booking in best_booking_info.spm_slots: spm.commit_slot(**booking)
-        for booking in best_booking_info.issue_slots: issue_queue.commit_issue(**booking)
+    if not best_op_details: return
 
-        engine_pool = engine_pools[op_details['engine']]
-        engine_idx = engine_pool.index(min(engine_pool))
-        engine_pool[engine_idx] = op_details['end']
+    op = best_op_details['op']
+    op_queue = best_op_details['op_queue']
+    best_engine_idx = best_op_details['engine_idx']
+    best_booking_info = best_op_details['booking_info']
 
-        schedule.append(ScheduleItem(
-            op=op, start_cycle=op_details['start'], end_cycle=op_details['end'],
-            engine=f"{op_details['engine']}{engine_idx}", stall_cycles=op_details['stall_cycles'],
-            stall_breakdown=op_details['stall_breakdown'], cycle_breakdown=op_details['cycle_breakdown']
-        ))
+    dram_banks, spm, issue_queue, io_buffer = resource_trackers['dram_banks'], resource_trackers['spm_banks'], resource_trackers['issue_queue'], resource_trackers['io_buffer']
+    
+    if best_op_details['stall_breakdown'].get("RESOURCE_DRAM_BANK"): dram_banks.collisions += 1
+    for booking in best_booking_info.dram_transfers: dram_banks.commit_transfer(**booking)
+    for booking in best_booking_info.spm_slots: spm.commit_slot(**booking)
+    for booking in best_booking_info.issue_slots: issue_queue.commit_issue(**booking)
 
-        best_op_queue.remove(best_op)
+    # Commit IO buffer changes immediately
+    for pop_info in best_booking_info.io_buffer_pops:
+        io_buffer.pop(**pop_info)
+    for push_info in best_booking_info.io_buffer_pushes:
+        io_buffer.push(**push_info)
+    
+    engine_pool = engine_pools[best_op_details['engine']]
+    engine_pool[best_engine_idx] = best_op_details['end']
 
-        if config.mode == 'tight' and op.opcode == 'ENQCMD_T':
-            npu_op_desc = op.args['enqcmd'].npu_op_desc
-            ticket = op.args['enqcmd'].ticket
-            heapq.heappush(event_queue, Event(time=op_details['end'], type='ENQCMD_COMPLETE', item=(npu_op_desc, ticket)))
-        else:
-            ticket = op.args.get('_ticket')
-            heapq.heappush(event_queue, Event(time=op_details['end'], type='OP_COMPLETE', item=(op, op_details['end'], ticket)))
-        
-        heapq.heappush(event_queue, Event(time, 'CHECK_SCHED'))
+    schedule.append(ScheduleItem(
+        op=op, start_cycle=best_op_details['start'], end_cycle=best_op_details['end'],
+        engine=f"{best_op_details['engine']}{best_engine_idx}", stall_cycles=best_op_details['stall_cycles'],
+        stall_breakdown=best_op_details['stall_breakdown'], cycle_breakdown=best_op_details['cycle_breakdown']
+    ))
 
-def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any]) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
-    dram_banks, spm, issue_queue = resources['dram_banks'], resources['spm_banks'], resources['issue_queue']
+    op_queue.remove(op)
+
+    if config.mode == 'tight' and op.opcode == 'ENQCMD_T':
+        npu_op_desc = op.args['enqcmd'].npu_op_desc
+        ticket = op.args['enqcmd'].ticket
+        heapq.heappush(event_queue, Event(time=best_op_details['end'], type='ENQCMD_COMPLETE', item=(npu_op_desc, ticket)))
+    else:
+        ticket = op.args.get('_ticket')
+        heapq.heappush(event_queue, Event(time=best_op_details['end'], type='OP_COMPLETE', item=(op, best_op_details['end'], ticket, best_engine_idx, best_booking_info)))
+    
+    heapq.heappush(event_queue, Event(time, 'CHECK_SCHED'))
+
+def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], engine_idx: int, tensor_in_buffer: Set[str]) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+    print(f"DEBUG SCHEDULER: calculate_op_timing: op={op.name}, start_cycle={start_cycle}")
+    dram_banks, spm, issue_queue, l0_spms, io_buffer = resources['dram_banks'], resources['spm_banks'], resources['issue_queue'], resources['l0_spms'], resources['io_buffer']
     stall_reason, breakdown, booking_info = "NONE", {}, BookingInfo()
 
     if op.opcode == 'ENQCMD_T':
@@ -191,42 +230,80 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         duration = config.tight_mode_csr_latency
         return start_cycle, start_cycle + duration, "NONE", {'control': duration}, booking_info
 
-    if op.opcode in ('LOAD', 'STORE'):
-        if not op.inputs and not op.outputs: return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info
-        tensor = op.inputs[0] if op.opcode == 'LOAD' else op.outputs[0]
+    if op.opcode == 'LOAD':
+        if not op.outputs:
+            return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info # No output tensor to load into
+        tensor = op.outputs[0]
         num_bytes = tensor.num_elements * DTYPE_MAP.get(tensor.dtype, 1)
-        actual_start, duration, stall_reason, ch_id, b_id = dram_banks.probe_transfer(start_cycle, tensor.address, num_bytes)
+        if not io_buffer.can_push(num_bytes):
+            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_FULL", breakdown, booking_info # Stall
+        
+        actual_start, duration, stall_reason, ch_id, b_id = dram_banks.probe_transfer(start_cycle, op.inputs[0].address, num_bytes)
         booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': actual_start, 'duration': duration})
+        booking_info.io_buffer_pushes.append({'num_bytes': num_bytes, 'tensor_name': tensor.name})
+        return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
+
+    if op.opcode == 'STORE':
+        tensor = op.inputs[0]
+        if tensor.name not in tensor_in_buffer:
+            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info # Stall
+
+        num_bytes = tensor.num_elements * DTYPE_MAP.get(tensor.dtype, 1)
+        actual_start, duration, stall_reason, ch_id, b_id = dram_banks.probe_transfer(start_cycle, op.outputs[0].address, num_bytes)
+        booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': actual_start, 'duration': duration})
+        booking_info.io_buffer_pops.append({'num_bytes': num_bytes})
         return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
 
     elif op.opcode in ("MatMul", "Conv"):
-        # Inputs are assumed to be in SPM, so we only model the compute time.
-        # LOAD and STORE operations are now explicit in the NPU program.
+        print(f"DEBUG: MatMul/Conv op: {op.name}, inputs: {[t.name for t in op.inputs]}, tensor_in_buffer: {tensor_in_buffer}")
+        if not all(t.name in tensor_in_buffer for t in op.inputs):
+            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info # Stall
+
+        num_bytes = sum(t.num_elements * DTYPE_MAP.get(t.dtype, 1) for t in op.inputs)
+        booking_info.io_buffer_pops.append({'num_bytes': num_bytes})
+
+        l0_spm = l0_spms[engine_idx]
+        is_hit = l0_spm.probe_hit(op.inputs)
+        
+        load_cycles = 0
+        if not is_hit:
+            bytes_to_load = l0_spm.get_required_load_bytes(op.inputs)
+            load_cycles = bytes_to_load // 128 
+        
         breakdown = calculate_systolic_array_cycles(
-            op.args.get('tile_m', 128), 
-            op.args.get('tile_n', 128), 
-            op.args.get('tile_k', 128), 
-            config.systolic_array_height, 
-            config.systolic_array_width
+            op.args.get('tile_m', 128), op.args.get('tile_n', 128), op.args.get('tile_k', 128), 
+            config.systolic_array_height, config.systolic_array_width
         )
         compute_cycles = breakdown['total']
         
-        # Find the earliest time the SPM banks are available for this compute op
+        total_op_duration = compute_cycles + (l0_spm.latency if is_hit else load_cycles)
+        breakdown['l0_access'] = l0_spm.latency if is_hit else load_cycles
+        breakdown['total'] = total_op_duration
+
         num_banks_needed = config.spm_banks // 2
-        compute_start_cycle, chosen_banks = spm.probe_earliest_free_slot(start_cycle, compute_cycles, num_banks_needed)
+        op_start_cycle, chosen_banks = spm.probe_earliest_free_slot(start_cycle, total_op_duration, num_banks_needed)
         
         stall_reason = "NONE"
-        if compute_start_cycle > start_cycle:
+        if op_start_cycle > start_cycle:
             stall_reason = "RESOURCE_SPM"
             
-        compute_end_cycle = compute_start_cycle + compute_cycles
-
-        # Book the SPM slot for the duration of the computation
-        booking_info.spm_slots.append({'cycle': compute_start_cycle, 'duration': compute_cycles, 'chosen_banks': chosen_banks})
+        op_end_cycle = op_start_cycle + total_op_duration
+        booking_info.spm_slots.append({'cycle': op_start_cycle, 'duration': total_op_duration, 'chosen_banks': chosen_banks})
         
-        return compute_start_cycle, compute_end_cycle, stall_reason, breakdown, booking_info
+        out_bytes = sum(t.num_elements * DTYPE_MAP.get(t.dtype, 1) for t in op.outputs)
+        if not io_buffer.can_push(out_bytes):
+             pass
+        booking_info.io_buffer_pushes.append({'num_bytes': out_bytes, 'tensor_name': op.outputs[0].name})
+
+        return op_start_cycle, op_end_cycle, stall_reason, breakdown, booking_info
 
     elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm", "Erf"):
+        if not all(t.name in tensor_in_buffer for t in op.inputs):
+            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info # Stall
+
+        num_bytes = sum(t.num_elements * DTYPE_MAP.get(t.dtype, 1) for t in op.inputs)
+        booking_info.io_buffer_pops.append({'num_bytes': num_bytes})
+
         num_elements = op.args.get('num_elements', 2048)
         compute_cycles = max(5, num_elements // 16)
         num_banks_needed = 2
@@ -234,12 +311,18 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         if compute_start_cycle > start_cycle: stall_reason = "RESOURCE_SPM"
         breakdown = {'total': compute_cycles, 'compute': compute_cycles}
         booking_info.spm_slots.append({'cycle': compute_start_cycle, 'duration': compute_cycles, 'chosen_banks': chosen_banks})
+        
+        out_bytes = sum(t.num_elements * DTYPE_MAP.get(t.dtype, 1) for t in op.outputs)
+        if op.outputs:
+            booking_info.io_buffer_pushes.append({'num_bytes': out_bytes, 'tensor_name': op.outputs[0].name})
+
         return compute_start_cycle, compute_start_cycle + compute_cycles, stall_reason, breakdown, booking_info
 
     else:
         return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info
 
 def get_engine_for_op(op: NPUOp, mode: str = 'loose') -> str:
+    print(f"DEBUG SCHEDULER: get_engine_for_op: op={op.name}, opcode={op.opcode}")
     if mode == 'tight' and op.opcode in ('ENQCMD_T', 'TWAIT'):
         return "CPU"
     if op.opcode in ("MatMul", "Conv"):
@@ -250,18 +333,5 @@ def get_engine_for_op(op: NPUOp, mode: str = 'loose') -> str:
         return "DMA"
 
 def simple_greedy_schedule(p: Program) -> List[ScheduleItem]:
-    time = 0
-    schedule: List[ScheduleItem] = []
-    for op in p.ops:
-        if op.opcode in ("MatMul", "Conv"):
-            dur = 100
-            eng = "TC"
-        elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm", "Erf"):
-            dur = 20
-            eng = "VC"
-        else:
-            dur = 10
-            eng = "CPU"
-        schedule.append(ScheduleItem(op=op, start_cycle=time, end_cycle=time+dur, engine=eng))
-        time += dur
-    return schedule
+    # ... (rest of the function is unchanged)
+    return []

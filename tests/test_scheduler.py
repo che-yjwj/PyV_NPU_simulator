@@ -4,6 +4,7 @@ from pyv_npu.isa.npu_ir import Program, NPUOp, Tensor
 from pyv_npu.runtime.scheduler import event_driven_schedule
 
 def test_scheduler_stall_reason_dep():
+    print("\nDEBUG: Testing test_scheduler_stall_reason_dep...")
     """Tests that dependency stalls are correctly identified."""
     # op1 -> op2. op2 must wait for op1.
     t_in1 = Tensor("t_in1", (1,1), "float16", address=0)

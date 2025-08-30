@@ -1,7 +1,77 @@
 from __future__ import annotations
 from ..config import SimConfig
-from typing import List, Tuple
+from typing import List, Tuple, Dict
+from collections import deque
+from ..isa.npu_ir import Tensor, DTYPE_MAP
 from .memory import DramAddressMapper
+
+class IOBufferTracker:
+    """Models a simple FIFO buffer for data between DMA and Compute."""
+    def __init__(self, config: SimConfig, name: str):
+        self.name = name
+        self.capacity_bytes = config.io_buffer_size_kb * 1024
+        self.current_fill_bytes = 0
+        self.queue = deque()
+        self.resident_tensors = set()
+
+    def can_push(self, num_bytes: int) -> bool:
+        """Check if there is enough space to push data."""
+        return self.current_fill_bytes + num_bytes <= self.capacity_bytes
+
+    def can_pop(self, num_bytes: int) -> bool:
+        """Check if there is enough data to pop."""
+        return self.current_fill_bytes >= num_bytes
+
+    def can_pop_tensor(self, tensor_name: str) -> bool:
+        """Check if a specific tensor is available in the buffer."""
+        return tensor_name in self.resident_tensors
+
+    def push(self, num_bytes: int, tensor_name: str):
+        """Push a tensor's data into the buffer."""
+        if not self.can_push(num_bytes):
+            raise ValueError(f"[{self.name}] Buffer overflow! Cannot push {num_bytes} bytes.")
+        self.current_fill_bytes += num_bytes
+        self.queue.append((num_bytes, tensor_name))
+        self.resident_tensors.add(tensor_name)
+
+    def pop(self, num_bytes: int, tensor_name: str):
+        """Pop a specific tensor's data from the buffer."""
+        if not self.can_pop_tensor(tensor_name):
+            raise ValueError(f"[{self.name}] Tensor {tensor_name} not in buffer for popping.")
+        if not self.can_pop(num_bytes):
+            raise ValueError(f"[{self.name}] Buffer underflow! Cannot pop {num_bytes} bytes.")
+        
+        # This is a simplified model. A real FIFO would pop from the front.
+        # Here we assume any resident tensor can be popped.
+        self.current_fill_bytes -= num_bytes
+        self.resident_tensors.remove(tensor_name)
+        # In a more complex model, we would need to manage the deque properly
+
+
+class L0SPMTracker:
+    """Models the L0 SPM cache for a single Tensor Core."""
+    def __init__(self, config: SimConfig):
+        self.size_bytes = config.l0_spm_size_kb * 1024
+        self.latency = config.l0_spm_latency_cycles
+        self.resident_tensors: Dict[str, Tensor] = {}
+        self.timeline: List[Tuple[int, int]] = []
+
+    def probe_hit(self, tensors: List[Tensor]) -> bool:
+        """Checks if all required tensors are resident in the L0 SPM."""
+        return all(t.name in self.resident_tensors for t in tensors)
+
+    def get_required_load_bytes(self, tensors: List[Tensor]) -> int:
+        """Calculates the total bytes that need to be loaded into L0."""
+        bytes_to_load = 0
+        for t in tensors:
+            if t.name not in self.resident_tensors:
+                bytes_to_load += t.num_elements * DTYPE_MAP.get(t.dtype, 1)
+        return bytes_to_load
+
+    def commit_load(self, tensors: List[Tensor]):
+        """Evicts old tensors and loads new ones (simplified LRU)."""
+        self.resident_tensors = {t.name: t for t in tensors}
+
 
 class BandwidthTracker:
     """Models a resource with a fixed bandwidth (e.g., DRAM, NoC)."""
@@ -40,7 +110,7 @@ class BankTracker:
             raise ValueError(f"Requesting {num_banks_needed} banks, but only {self.num_banks} exist.")
         
         current_try_cycle = start_cycle
-        while True:
+        while current_try_cycle < start_cycle + 1000000: # Add a timeout
             free_banks = []
             for i in range(self.num_banks):
                 is_free = True
@@ -55,6 +125,7 @@ class BankTracker:
                 return current_try_cycle, free_banks[:num_banks_needed]
             
             current_try_cycle += 1
+        return -1, [] # Indicate failure
 
     def commit_slot(self, cycle: int, duration: int, chosen_banks: List[int]):
         for bank_idx in chosen_banks:
@@ -62,15 +133,12 @@ class BankTracker:
             self.bank_timelines[bank_idx].sort()
 
 class DramBankTracker:
-    """Models DRAM channel and bank contention. Refactored for probe/commit."""
+    """Models DRAM channel and bank contention using timelines."""
     def __init__(self, config: SimConfig):
         self.config = config
         self.mapper = DramAddressMapper(config)
         self.num_channels = config.dram_channels
-        self.num_banks_per_channel = config.dram_banks_per_channel
-        self.bank_free_time: List[List[int]] = [
-            [0] * self.num_banks_per_channel for _ in range(self.num_channels)
-        ]
+        self.channel_timelines: List[List[Tuple[int, int]]] = [[] for _ in range(self.num_channels)]
         self.collisions = 0
 
     def get_transfer_cycles(self, num_bytes: int) -> int:
@@ -90,16 +158,21 @@ class DramBankTracker:
         if duration == 0:
             return start_cycle, 0, "NONE", channel_id, bank_id
 
-        bank_available_cycle = self.bank_free_time[channel_id][bank_id]
-        actual_start = max(start_cycle, bank_available_cycle)
-        stall_reason = "RESOURCE_DRAM_BANK" if actual_start > start_cycle else "NONE"
+        last_end_cycle = self.channel_timelines[channel_id][-1][0] if self.channel_timelines[channel_id] else 0
+        actual_start = max(start_cycle, last_end_cycle)
         
+        stall_reason = "RESOURCE_DRAM_BANK" if actual_start > start_cycle else "NONE"
+        if stall_reason == "RESOURCE_DRAM_BANK":
+            self.collisions += 1
+
         return actual_start, duration, stall_reason, channel_id, bank_id
 
     def commit_transfer(self, channel_id: int, bank_id: int, start_cycle: int, duration: int):
         if channel_id < 0:
-            return # Address was None, nothing to commit
-        self.bank_free_time[channel_id][bank_id] = start_cycle + duration
+            return
+        end_cycle = start_cycle + duration
+        self.channel_timelines[channel_id].append((end_cycle, duration))
+        self.channel_timelines[channel_id].sort()
 
 class IssueQueueTracker:
     """Models the NPU's internal command issue queue."""
