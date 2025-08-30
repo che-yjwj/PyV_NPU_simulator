@@ -13,12 +13,15 @@ def run(program: Program, config: SimConfig) -> Tuple[List[ScheduleItem], Dict[s
     SimConfig, it will select the appropriate scheduling and timing models.
     """
     print(f"Running simulation with mode='{config.mode}' and level='{config.sim_level}'")
+    print(f"DEBUG: program: {program}")
 
     # --- Scheduler Selection --- 
     if config.sim_level == "IA":
       schedule = simple_greedy_schedule(program)
       stats = {}
     else: # IA_TIMING, CA_HYBRID, CA_FULL
+      print("DEBUG: Entering event_driven_schedule...")
       schedule, stats = event_driven_schedule(program, config)
+      print("DEBUG: Exited event_driven_schedule.")
 
     return schedule, stats

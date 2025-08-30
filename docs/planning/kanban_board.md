@@ -111,15 +111,12 @@ v250813b
 
 ## Ready
 
+## In-Progress
+
 ### MEM-02 | Input/Output 버퍼 모델 구현
 - **요약**: SPM과 별개로 DMA와 연산 유닛 간 데이터 흐름을 제어하는 Input/Output 버퍼(FIFO)를 구현합니다.
 - **수용기준**: 버퍼 크기 초과 시 Backpressure 이벤트 발생. DMA와 연산이 버퍼를 통해 데이터를 주고받도록 수정.
 - **우선순위**: P0 / **사이즈**: M / **의존성**: MEM-01 / **태그**: 메모리, DMA, Phase1
-
-
----
-
-## In-Progress
 
 ### CI-01 | 테스트 스위트 확장
 - **진행**: `config`, `reporting` 모듈에 대한 단위 테스트 추가 완료. 스케줄러의 stall 계산 로직이 안정화되었습니다.

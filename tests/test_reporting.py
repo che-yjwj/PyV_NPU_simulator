@@ -134,16 +134,8 @@ def test_generate_report_full(sample_schedule, sample_config, tmp_path: Path):
     """Tests the main generate_report function that writes files."""
     # The config needs a report_dir
     sample_config.report_dir = str(tmp_path)
-    
-    # Mock plotly to avoid dependency issues in all test environments
-    original_px = reporting.px
-    reporting.px = None
-    
+
     generate_report(sample_schedule, sample_config, {})
-    
-    reporting.px = original_px # Restore
-    
+
     output_dir = tmp_path
     assert (output_dir / "report.json").exists()
-    # The ascii gantt is printed to stdout, so we can't check for a file
-    # We can't easily check for the HTML file as plotly is mocked

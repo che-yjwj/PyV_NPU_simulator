@@ -7,18 +7,21 @@ def create_program_with_parallel_loads(addr1, addr2):
     """Creates a program with two parallel LOAD operations to specific addresses."""
     t_in1 = Tensor("t_in1", (1024,), "float16", address=addr1)
     t_in2 = Tensor("t_in2", (1024,), "float16", address=addr2)
-    op1 = NPUOp("LOAD", "load1", inputs=[t_in1], outputs=[])
-    op2 = NPUOp("LOAD", "load2", inputs=[t_in2], outputs=[])
+    t_out1 = Tensor("t_in1_spm", (1024,), "float16")
+    t_out2 = Tensor("t_in2_spm", (1024,), "float16")
+    op1 = NPUOp("LOAD", "load1", inputs=[t_in1], outputs=[t_out1])
+    op2 = NPUOp("LOAD", "load2", inputs=[t_in2], outputs=[t_out2])
     prog = Program(ops=[op1, op2], inputs=[t_in1, t_in2], initializers={})
     return prog
 
 def test_dram_policy_collision_comparison():
+    print("\nDEBUG: Testing test_dram_policy_collision_comparison...")
     """
     Tests that different DRAM mapping policies result in different collision counts.
     """
     # --- Run with settings designed to cause collisions ---
     # Use a single channel and bank, so any parallel access will collide.
-    config_collide = SimConfig(sim_level='CA_HYBRID', dram_channels=1, dram_banks_per_channel=1)
+    config_collide = SimConfig(sim_level='CA_HYBRID', dram_channels=1, dram_banks_per_channel=1, dma_channels=2)
     prog_collide = create_program_with_parallel_loads(addr1=0, addr2=4096)
     schedule_collide, stats_collide = run_sim(prog_collide, config_collide)
     collisions_collide = stats_collide.get("dram_collisions", 0)

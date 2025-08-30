@@ -1,17 +1,8 @@
 
 import pytest
-import os
-from unittest.mock import MagicMock
-
-# Mock the onnx library at the top level for all tests in this file
-# This is a simple way to avoid the DecodeError if a real onnx model is not present.
-# In a real-world scenario, we would use a small, valid ONNX file for testing.
-try:
-    import onnx
-    from onnx import helper
-    from onnx import TensorProto
-except ImportError:
-    onnx = MagicMock()
+import onnx
+from onnx import helper
+from onnx import TensorProto
 
 
 from pyv_npu.ir.onnx_importer import load_onnx_as_model_ir
@@ -48,7 +39,7 @@ def test_load_onnx_model(monkeypatch, mock_onnx_model):
 
     # Mock onnx.load to return our fake model instead of reading the file
     mock_load = lambda path: mock_onnx_model
-    monkeypatch.setattr(onnx, "load", mock_load)
+    monkeypatch.setattr("pyv_npu.ir.onnx_importer.onnx.load", mock_load)
 
     # Load the model using the importer
     graph = load_onnx_as_model_ir(onnx_model_path)
@@ -57,4 +48,11 @@ def test_load_onnx_model(monkeypatch, mock_onnx_model):
     assert isinstance(graph, Graph)
 
     # Assert that the graph contains the data from our mock model
-    assert len(graph.nodes) == 4
+    assert len(graph.nodes) == 1
+    assert graph.nodes[0].name == 'test_node'
+    assert graph.nodes[0].op_type == 'MatMul'
+    assert 'X' in graph.inputs
+    assert 'Y' in graph.outputs
+    assert 'W' in graph.tensors
+    assert graph.tensors['X'].shape == (1, 2)
+    assert graph.tensors['W'].shape == (2, 4)

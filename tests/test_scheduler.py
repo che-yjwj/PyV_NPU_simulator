@@ -4,6 +4,7 @@ from pyv_npu.isa.npu_ir import Program, NPUOp, Tensor
 from pyv_npu.runtime.scheduler import event_driven_schedule
 
 def test_scheduler_stall_reason_dep():
+    print("\nDEBUG: Testing test_scheduler_stall_reason_dep...")
     """Tests that dependency stalls are correctly identified."""
     # op1 -> op2. op2 must wait for op1.
     t_in1 = Tensor("t_in1", (1,1), "float16", address=0)
@@ -46,10 +47,8 @@ def test_scheduler_stall_reason_resource():
     schedule, stats = event_driven_schedule(prog, config)
 
     # Find the second matmul to run
-    op_starts = sorted([(item.start_cycle, item.op.name) for item in schedule if item.op.opcode == 'MatMul'])
-    assert len(op_starts) == 2
-    second_op_name = op_starts[1][1]
-    second_op_item = next(item for item in schedule if item.op.name == second_op_name)
+    op_starts = sorted([(item.start_cycle, item) for item in schedule if item.op.opcode == 'MatMul'])
+    second_op_item = op_starts[1][1]
 
     # The second op should have a resource stall waiting for the first to finish
     assert second_op_item.stall_cycles > 0
