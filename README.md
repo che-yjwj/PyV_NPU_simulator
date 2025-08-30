@@ -55,11 +55,15 @@ App/Runtime/API ───────► │  pyv_npu.Runtime                   
 │    ┌─────────────────────────────────────────── NPU Cluster (xN) ───────────────────────────────────┐ │
 │    │   ┌────────── Scheduler/Dispatcher ──────────┐  ┌──────── DMA (0..C-1) ───────┐               │ │
 │    │   │  IR Queue | CP-prio | Bank-aware         │  │ per-chan q | DBB | Prefetch │               │ │
-│    │   └──────────────────────────────────────────┘  └──────────────────────────────┘               │ │
-│    │   ┌────────────── SPM (banked) ───────────────┐  ┌──────────── Compute ─────────┐             │ │
-│    │   │ banks | ping-pong | arbiter | counters    │  │  TC array (GEMM/CONV/ATTN)   │             │ │
-│    │   └───────────────────────────────────────────┘  │  VC array (LN/GELU/ELTWISE)  │             │ │
-│    │                                                  └───────────────────────────────┘             │ │
+│    │   └──────────────────────────────────────────┘  └──────────────┬─────────────┘               │ │
+│    │   ┌────────────── SPM (banked) ───────────────┐               │ I/O Buffer                  │ │
+│    │   │ banks | ping-pong | arbiter | counters    │               ▼                             │ │
+│    │   └──────────────┬────────────────────────────┘  ┌──────────── Compute ─────────┐             │ │
+│    │                  │ L0 SPM                        │  TC array (GEMM/CONV/ATTN)   │             │ │
+│    │                  ▼                             │  VC array (LN/GELU/ELTWISE)  │             │ │
+│    │   ┌────────────── L0 SPM (per-TC) ─────────────┐  └───────────────────────────────┘             │ │
+│    │   │ tile-level cache for data reuse           │                                                │ │
+│    │   └───────────────────────────────────────────┘                                                │ │
 │    └────────────────────────────────────────────────────────────────────────────────────────────────┘ │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
@@ -124,6 +128,8 @@ The simulator starts with a set of default hardware parameters, which can be cus
 |-------------------|---------------|-------------------------------------------|
 | TC Cores          | 2             | Tensor Cores for heavy computation      |
 | VC Cores          | 4             | Vector Cores for element-wise ops       |
+| L0 SPM Capacity   | 64 KiB        | Tile-level Scratchpad Memory              |
+| I/O Buffer Size   | 32 KiB        | Buffer between DMA and Compute units      |
 | SPM Capacity      | 2 MiB         | Banked Scratchpad Memory                  |
 | SPM Banks         | 8             | Number of banks for memory conflict model |
 | DMA Channels      | 2             | To support double-buffering               |
