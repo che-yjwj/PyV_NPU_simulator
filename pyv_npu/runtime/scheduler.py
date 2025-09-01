@@ -199,9 +199,10 @@ def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, eve
     heapq.heappush(event_queue, Event(time, 'CHECK_SCHED'))
 
 
-def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], engine_idx: int, tensor_in_buffer: Set[str]) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
-    dram_banks, spm, issue_queue, l0_spms, io_buffer = resources['dram_banks'], resources['spm_banks'], resources['issue_queue'], resources['l0_spms'], resources['io_buffer']
-    stall_reason, breakdown, booking_info = "NONE", {}, BookingInfo()
+# Opcode-specific timing calculation helpers
+def _calculate_control_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+    issue_queue = resources['issue_queue']
+    booking_info = BookingInfo()
 
     if op.opcode == Opcode.ENQCMD_T:
         issue_start = issue_queue.probe_issue_time(start_cycle)
@@ -212,6 +213,14 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
     if op.opcode == Opcode.TWAIT:
         duration = config.tight_mode_csr_latency
         return start_cycle, start_cycle + duration, "NONE", {'control': duration}, booking_info
+    
+    return start_cycle, start_cycle + 1, "NONE", {}, booking_info
+
+
+def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], tensor_in_buffer: Set[str], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+    dram_banks, io_buffer = resources['dram_banks'], resources['io_buffer']
+    booking_info = BookingInfo()
+    breakdown = {}
 
     if op.opcode == Opcode.LOAD:
         if not op.outputs:
@@ -236,74 +245,113 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': actual_start, 'duration': duration})
         booking_info.io_buffer_pops.append({'num_bytes': num_bytes, 'tensor_name': tensor.name})
         return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
+    
+    return start_cycle, start_cycle + 1, "NONE", {}, booking_info
 
-    elif op.opcode in (Opcode.MATMUL, Opcode.CONV):
-        if not all(t.name in tensor_in_buffer for t in op.inputs):
-            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
-        
-        for t in op.inputs:
-            num_bytes = t.num_elements * DTYPE_MAP.get(t.dtype, 1)
-            booking_info.io_buffer_pops.append({'num_bytes': num_bytes, 'tensor_name': t.name})
 
-        l0_spm = l0_spms[engine_idx]
-        is_hit = l0_spm.probe_hit(op.inputs)
-        
-        load_cycles = 0
-        if not is_hit:
-            bytes_to_load = l0_spm.get_required_load_bytes(op.inputs)
-            load_cycles = bytes_to_load // 128 
-        
-        breakdown = calculate_systolic_array_cycles(
-            op.args.get('tile_m', 128), op.args.get('tile_n', 128), op.args.get('tile_k', 128), 
-            config.systolic_array_height, config.systolic_array_width
-        )
-        compute_cycles = breakdown['total']
-        
-        total_op_duration = compute_cycles + (l0_spm.latency if is_hit else load_cycles)
-        breakdown['l0_access'] = l0_spm.latency if is_hit else load_cycles
-        breakdown['total'] = total_op_duration
+def _calculate_tc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], engine_idx: int, tensor_in_buffer: Set[str], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+    spm, l0_spms, io_buffer = resources['spm_banks'], resources['l0_spms'], resources['io_buffer']
+    booking_info = BookingInfo()
+    breakdown = {}
 
-        num_banks_needed = config.spm_banks // 2
-        op_start_cycle, chosen_banks = spm.probe_earliest_free_slot(start_cycle, total_op_duration, num_banks_needed)
+    if not all(t.name in tensor_in_buffer for t in op.inputs):
+        return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
+    
+    for t in op.inputs:
+        num_bytes = t.num_elements * DTYPE_MAP.get(t.dtype, 1)
+        booking_info.io_buffer_pops.append({'num_bytes': num_bytes, 'tensor_name': t.name})
+
+    l0_spm = l0_spms[engine_idx]
+    is_hit = l0_spm.probe_hit(op.inputs)
+    
+    load_cycles = 0
+    if not is_hit:
+        bytes_to_load = l0_spm.get_required_load_bytes(op.inputs)
+        load_cycles = bytes_to_load // 128 
+    
+    breakdown = calculate_systolic_array_cycles(
+        op.args.get('tile_m', 128), op.args.get('tile_n', 128), op.args.get('tile_k', 128), 
+        config.systolic_array_height, config.systolic_array_width
+    )
+    compute_cycles = breakdown['total']
+    
+    total_op_duration = compute_cycles + (l0_spm.latency if is_hit else load_cycles)
+    breakdown['l0_access'] = l0_spm.latency if is_hit else load_cycles
+    breakdown['total'] = total_op_duration
+
+    num_banks_needed = config.spm_banks // 2
+    op_start_cycle, chosen_banks = spm.probe_earliest_free_slot(start_cycle, total_op_duration, num_banks_needed)
+    
+    stall_reason = "NONE"
+    if op_start_cycle > start_cycle:
+        stall_reason = "RESOURCE_SPM"
         
-        stall_reason = "NONE"
-        if op_start_cycle > start_cycle:
-            stall_reason = "RESOURCE_SPM"
-            
-        op_end_cycle = op_start_cycle + total_op_duration
-        booking_info.spm_slots.append({'cycle': op_start_cycle, 'duration': total_op_duration, 'chosen_banks': chosen_banks})
-        
-        out_bytes = sum(t.num_elements * DTYPE_MAP.get(t.dtype, 1) for t in op.outputs)
-        if not io_buffer.can_push(out_bytes):
-             pass
+    op_end_cycle = op_start_cycle + total_op_duration
+    booking_info.spm_slots.append({'cycle': op_start_cycle, 'duration': total_op_duration, 'chosen_banks': chosen_banks})
+    
+    out_bytes = sum(t.num_elements * DTYPE_MAP.get(t.dtype, 1) for t in op.outputs)
+    if not io_buffer.can_push(out_bytes):
+         pass
+    booking_info.io_buffer_pushes.append({'num_bytes': out_bytes, 'tensor_name': op.outputs[0].name})
+
+    return op_start_cycle, op_end_cycle, stall_reason, breakdown, booking_info
+
+
+def _calculate_vc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], tensor_in_buffer: Set[str], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+    spm, io_buffer = resources['spm_banks'], resources['io_buffer']
+    booking_info = BookingInfo()
+    breakdown = {}
+
+    if not all(t.name in tensor_in_buffer for t in op.inputs):
+        return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
+    
+    for t in op.inputs:
+        num_bytes = t.num_elements * DTYPE_MAP.get(t.dtype, 1)
+        booking_info.io_buffer_pops.append({'num_bytes': num_bytes, 'tensor_name': t.name})
+
+    num_elements = op.args.get('num_elements', 2048)
+    compute_cycles = max(5, num_elements // 16)
+    num_banks_needed = 2
+    compute_start_cycle, chosen_banks = spm.probe_earliest_free_slot(start_cycle, compute_cycles, num_banks_needed)
+    stall_reason = "NONE"
+    if compute_start_cycle > start_cycle: stall_reason = "RESOURCE_SPM"
+    breakdown = {'total': compute_cycles, 'compute': compute_cycles}
+    booking_info.spm_slots.append({'cycle': compute_start_cycle, 'duration': compute_cycles, 'chosen_banks': chosen_banks})
+    
+    out_bytes = sum(t.num_elements * DTYPE_MAP.get(t.dtype, 1) for t in op.outputs)
+    if op.outputs:
         booking_info.io_buffer_pushes.append({'num_bytes': out_bytes, 'tensor_name': op.outputs[0].name})
 
-        return op_start_cycle, op_end_cycle, stall_reason, breakdown, booking_info
+    return compute_start_cycle, compute_start_cycle + compute_cycles, stall_reason, breakdown, booking_info
 
-    elif op.opcode in (Opcode.GELU, Opcode.SOFTMAX, Opcode.ADD, Opcode.MUL, Opcode.LAYERNORM, Opcode.ERF):
-        if not all(t.name in tensor_in_buffer for t in op.inputs):
-            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
-        
-        for t in op.inputs:
-            num_bytes = t.num_elements * DTYPE_MAP.get(t.dtype, 1)
-            booking_info.io_buffer_pops.append({'num_bytes': num_bytes, 'tensor_name': t.name})
 
-        num_elements = op.args.get('num_elements', 2048)
-        compute_cycles = max(5, num_elements // 16)
-        num_banks_needed = 2
-        compute_start_cycle, chosen_banks = spm.probe_earliest_free_slot(start_cycle, compute_cycles, num_banks_needed)
-        if compute_start_cycle > start_cycle: stall_reason = "RESOURCE_SPM"
-        breakdown = {'total': compute_cycles, 'compute': compute_cycles}
-        booking_info.spm_slots.append({'cycle': compute_start_cycle, 'duration': compute_cycles, 'chosen_banks': chosen_banks})
-        
-        out_bytes = sum(t.num_elements * DTYPE_MAP.get(t.dtype, 1) for t in op.outputs)
-        if op.outputs:
-            booking_info.io_buffer_pushes.append({'num_bytes': out_bytes, 'tensor_name': op.outputs[0].name})
+def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], engine_idx: int, tensor_in_buffer: Set[str]) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+    """
+    Calculates the start and end cycle for an NPU operation, considering resource availability.
+    This function is a dispatcher that calls the appropriate helper based on the opcode.
+    """
+    opcode_to_handler = {
+        Opcode.ENQCMD_T: _calculate_control_op_timing,
+        Opcode.TWAIT: _calculate_control_op_timing,
+        Opcode.LOAD: _calculate_dma_op_timing,
+        Opcode.STORE: _calculate_dma_op_timing,
+        Opcode.MATMUL: _calculate_tc_op_timing,
+        Opcode.CONV: _calculate_tc_op_timing,
+        Opcode.GELU: _calculate_vc_op_timing,
+        Opcode.SOFTMAX: _calculate_vc_op_timing,
+        Opcode.ADD: _calculate_vc_op_timing,
+        Opcode.MUL: _calculate_vc_op_timing,
+        Opcode.LAYERNORM: _calculate_vc_op_timing,
+        Opcode.ERF: _calculate_vc_op_timing,
+    }
 
-        return compute_start_cycle, compute_start_cycle + compute_cycles, stall_reason, breakdown, booking_info
+    handler = opcode_to_handler.get(op.opcode)
 
+    if handler:
+        return handler(op=op, start_cycle=start_cycle, config=config, resources=resources, engine_idx=engine_idx, tensor_in_buffer=tensor_in_buffer)
     else:
-        return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info
+        # Default case for unknown or simple ops
+        return start_cycle, start_cycle + 1, "NONE", {}, BookingInfo()
 
 
 def get_engine_for_op(op: NPUOp, mode: str = 'loose') -> str:
