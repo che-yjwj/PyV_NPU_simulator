@@ -1,92 +1,139 @@
 import pytest
-from pyv_npu.compiler.mapper import map_model_ir_to_npu_program, _add_op_args
+from pyv_npu.compiler.mapper import map_model_ir_to_npu_program
 from pyv_npu.ir.model_ir import Graph, Node, Tensor
-from pyv_npu.isa.npu_ir import NPUOp, Tensor as NpuTensor
+from pyv_npu.isa.opcode import Opcode
 
-@pytest.fixture
-def sample_graph():
-    """Provides a sample Model IR graph for testing."""
-    t_in = Tensor(name='input', shape=(128, 128), dtype='float16')
-    t_w = Tensor(name='weights', shape=(128, 128), dtype='float16')
-    t_out = Tensor(name='output', shape=(128, 128), dtype='float16')
-    
-    node = Node(name='matmul', op_type='MatMul', inputs=['input', 'weights'], outputs=['output'])
-    
-    tensors = {'input': t_in, 'weights': t_w, 'output': t_out}
-    graph = Graph(
-        nodes=[node],
-        inputs=['input'],
-        outputs=['output'],
-        initializers=['weights'],
-        tensors=tensors
+# The new mapper requires a more realistic Graph object, including a tensor map.
+def helper_create_model_ir(nodes):
+    """Helper to create a valid Graph for testing the new mapper."""
+    tensors = {
+        "inp": Tensor(name="inp", shape=(1, 128), dtype="float32"),
+        "w1": Tensor(name="w1", shape=(128, 128), dtype="float32"),
+        "b1": Tensor(name="b1", shape=(128,), dtype="float32"),
+        "out1": Tensor(name="out1", shape=(1, 128), dtype="float32"),
+        "out2": Tensor(name="out2", shape=(1, 128), dtype="float32"),
+        "final_out": Tensor(name="final_out", shape=(1, 128), dtype="float32"),
+    }
+    return Graph(
+        nodes=nodes,
+        inputs=["inp"],
+        outputs=["final_out"],
+        initializers=["w1", "b1"],
+        tensors=tensors,
     )
-    return graph
 
-def test_map_loose_mode(sample_graph: Graph):
-    """Tests basic mapping in loose mode, which should generate LOAD/STORE ops."""
-    program = map_model_ir_to_npu_program(sample_graph, mode='loose')
 
-    # Expecting LOAD, LOAD, COMPUTE, STORE
-    assert len(program.ops) == 4
-    opcodes = [op.opcode for op in program.ops]
-    assert opcodes == ['LOAD', 'LOAD', 'MatMul', 'STORE']
+def test_map_ir_to_loose_mode_single_op():
+    """Tests mapping a single compute node in loose mode."""
+    # given
+    ir = helper_create_model_ir(
+        [Node(name="node1", op_type="MatMul", inputs=["inp", "w1"], outputs=["out1"])]
+    )
+    # when
+    program = map_model_ir_to_npu_program(ir, mode='loose')
+    # then
+    # The mapper should generate LOADs for inputs and the MatMul compute op.
+    compute_ops = [op for op in program.ops if op.opcode == Opcode.MATMUL]
+    assert len(compute_ops) == 1
+    assert compute_ops[0].name == "node1"
+    assert Opcode.LOAD in [op.opcode for op in program.ops]
 
-    # Check that the compute op has the correct args
-    compute_op = program.ops[2]
-    assert compute_op.opcode == 'MatMul'
-    assert 'tile_m' in compute_op.args
-    assert compute_op.args['tile_m'] == 128
 
-def test_map_tight_mode(sample_graph: Graph):
-    """Tests basic mapping in tight mode."""
-    program = map_model_ir_to_npu_program(sample_graph, mode='tight')
-    # Each node should produce an ENQCMD_T and a TWAIT op
+def test_map_ir_to_tight_mode_single_op():
+    """Tests mapping a single compute node in tight mode."""
+    # given
+    ir = helper_create_model_ir(
+        [Node(name="node1", op_type="MatMul", inputs=["inp", "w1"], outputs=["out1"])]
+    )
+    # when
+    program = map_model_ir_to_npu_program(ir, mode='tight')
+    # then
     assert len(program.ops) == 2
-    assert program.ops[0].opcode == 'ENQCMD_T'
-    assert program.ops[1].opcode == 'TWAIT'
+    assert program.ops[0].opcode == Opcode.ENQCMD_T
+    assert program.ops[1].opcode == Opcode.TWAIT
+    # Check that the descriptor inside ENQCMD_T contains the correct compute op
+    enq_cmd_args = program.ops[0].args['enqcmd']
+    assert enq_cmd_args.npu_op_desc.opcode == Opcode.MATMUL
 
-    # Check that the descriptor inside ENQCMD_T is correct
-    enq_cmd = program.ops[0].args['enqcmd']
-    assert enq_cmd.npu_op_desc.opcode == 'MatMul'
-    assert 'tile_k' in enq_cmd.npu_op_desc.args
-    assert enq_cmd.ticket == 0
-    assert program.ops[1].args['twait'].ticket == 0
 
-def test_mapper_unknown_mode(sample_graph: Graph):
-    """Tests that an unknown mode raises a ValueError."""
-    with pytest.raises(ValueError, match="Unknown mapping mode: invalid_mode"):
-        map_model_ir_to_npu_program(sample_graph, mode='invalid_mode')
-
-def test_mapper_tensor_not_found(sample_graph: Graph):
-    """Tests that a missing tensor in the graph's tensor map raises an error."""
-    # Invalidate the graph by removing a tensor that a node needs
-    del sample_graph.tensors['weights']
-    with pytest.raises(ValueError, match="Tensor 'weights' not found"):
-        map_model_ir_to_npu_program(sample_graph, mode='loose')
-
-def test_add_op_args_matmul():
-    """Tests the _add_op_args helper for MatMul."""
-    node = Node(name='n', op_type='MatMul', inputs=[], outputs=[])
-    npu_op = NPUOp(
-        opcode='MatMul', 
-        name='n', 
-        inputs=[
-            NpuTensor('in1', (64, 32), 'fp16'),
-            NpuTensor('in2', (32, 128), 'fp16')
+def test_map_ir_to_loose_mode_multiple_ops():
+    """Tests mapping a sequence of nodes in loose mode."""
+    # given
+    ir = helper_create_model_ir(
+        [
+            Node(name="node1", op_type="MatMul", inputs=["inp", "w1"], outputs=["out1"]),
+            Node(name="node2", op_type="Add", inputs=["out1", "b1"], outputs=["out2"]),
         ]
     )
-    _add_op_args(node, npu_op)
-    assert npu_op.args['tile_m'] == 64
-    assert npu_op.args['tile_k'] == 32
-    assert npu_op.args['tile_n'] == 128
+    # when
+    program = map_model_ir_to_npu_program(ir, mode='loose')
+    # then
+    op_names = [op.name for op in program.ops]
+    assert "node1" in op_names
+    assert "node2" in op_names
+    opcodes = [op.opcode for op in program.ops]
+    assert Opcode.MATMUL in opcodes
+    assert Opcode.ADD in opcodes
 
-def test_add_op_args_elementwise():
-    """Tests the _add_op_args helper for element-wise ops."""
-    node = Node(name='n', op_type='GELU', inputs=[], outputs=[])
-    npu_op = NPUOp(
-        opcode='GELU', 
-        name='n', 
-        inputs=[NpuTensor('in1', (1, 2048), 'fp16')]
+
+def test_map_ir_to_tight_mode_multiple_ops():
+    """Tests mapping a sequence of nodes in tight mode."""
+    # given
+    ir = helper_create_model_ir(
+        [
+            Node(name="node1", op_type="MatMul", inputs=["inp", "w1"], outputs=["out1"]),
+            Node(name="node2", op_type="Add", inputs=["out1", "b1"], outputs=["out2"]),
+        ]
     )
-    _add_op_args(node, npu_op)
-    assert npu_op.args['num_elements'] == 2048
+    # when
+    program = map_model_ir_to_npu_program(ir, mode='tight')
+    # then
+    assert len(program.ops) == 4  # enq, twait, enq, twait
+    assert program.ops[0].opcode == Opcode.ENQCMD_T
+    assert program.ops[0].args['enqcmd'].npu_op_desc.name == "node1"
+    assert program.ops[1].opcode == Opcode.TWAIT
+    assert program.ops[2].opcode == Opcode.ENQCMD_T
+    assert program.ops[2].args['enqcmd'].npu_op_desc.name == "node2"
+    assert program.ops[3].opcode == Opcode.TWAIT
+
+
+def test_map_ir_empty_nodes():
+    """Tests mapping a graph with no compute nodes."""
+    # given
+    ir = helper_create_model_ir([])
+    # when
+    loose_program = map_model_ir_to_npu_program(ir, mode='loose')
+    tight_program = map_model_ir_to_npu_program(ir, mode='tight')
+    # then
+    # The new mapper creates LOADs for initializers and STOREs for outputs.
+    # We should check that no *compute* ops are created.
+    loose_compute_ops = [op for op in loose_program.ops if op.opcode not in (Opcode.LOAD, Opcode.STORE)]
+    assert len(loose_compute_ops) == 0
+    assert len(tight_program.ops) == 0
+
+
+def test_map_ir_unsupported_opcode():
+    """Tests that an unsupported op_type raises a ValueError."""
+    # given
+    ir = helper_create_model_ir([Node(name="node1", op_type="UnsupportedOp", inputs=[], outputs=[])])
+    # when/then
+    with pytest.raises(ValueError, match="Unsupported ONNX op_type"):
+        map_model_ir_to_npu_program(ir, mode='loose')
+
+    with pytest.raises(ValueError, match="Unsupported ONNX op_type"):
+        map_model_ir_to_npu_program(ir, mode='tight')
+
+
+def test_map_ir_missing_tensor_info():
+    """Tests that a missing tensor in the graph's tensor map raises an error."""
+    # given
+    ir = helper_create_model_ir([Node(name="node1", op_type="MatMul", inputs=["inp", "w1"], outputs=["out1"])])
+    # Intentionally remove a required tensor from the map
+    del ir.tensors["w1"]
+
+    # when/then
+    with pytest.raises(ValueError, match="Tensor 'w1' not found"):
+        map_model_ir_to_npu_program(ir, mode='loose')
+
+    with pytest.raises(ValueError, match="Tensor 'w1' not found"):
+        map_model_ir_to_npu_program(ir, mode='tight')

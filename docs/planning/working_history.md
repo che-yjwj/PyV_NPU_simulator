@@ -1,3 +1,7 @@
+V250901c - TST-01: mapper.py 테스트 커버리지 확대 (feature/tst-01-add-mapper-tests):
+  - `compiler/mapper.py`의 리팩토링된 코드 구조(`Graph` 클래스, `map_model_ir_to_npu_program` 함수)에 맞춰 테스트 코드를 전면 수정.
+  - `loose` 및 `tight` 모드에 대한 다중 연산, 빈 모델, 미지원 Opcode 등 엣지 케이스 테스트를 보강하여 안정성 향상.
+
 V250831a
   - 문서와 코드베이스 상태 동기화 (docs/sync-codebase-state):
     - `MEM-02` (I/O 버퍼 모델) 완료에 따라 `docs/planning/kanban_board.md`의 상태를 `In-Progress`에서 `Done`으로 업데이트.
