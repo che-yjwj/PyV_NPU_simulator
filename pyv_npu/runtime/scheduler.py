@@ -4,8 +4,10 @@ from typing import List, Dict, Any, Tuple, Set
 import heapq
 from ..config import SimConfig
 from ..isa.npu_ir import Program, NPUOp, Tensor, DTYPE_MAP
+from ..isa.opcode import Opcode
 from .resources import BankTracker, DramBankTracker, IssueQueueTracker, L0SPMTracker, IOBufferTracker
 from .te import calculate_systolic_array_cycles
+
 
 @dataclass
 class BookingInfo:
@@ -15,6 +17,7 @@ class BookingInfo:
     l0_spm_loads: List[Dict[str, Any]] = field(default_factory=list)
     io_buffer_pops: List[Dict[str, Any]] = field(default_factory=list)
     io_buffer_pushes: List[Dict[str, Any]] = field(default_factory=list)
+
 
 @dataclass
 class ScheduleItem:
@@ -26,11 +29,13 @@ class ScheduleItem:
     stall_breakdown: Dict[str, int] = field(default_factory=dict)
     cycle_breakdown: Dict[str, int] = field(default_factory=dict)
 
+
 @dataclass(order=True)
 class Event:
     time: int
     type: str = field(compare=False)
     item: Any = field(compare=False, default=None)
+
 
 def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleItem], Dict[str, Any]]:
     time = 0
@@ -112,7 +117,7 @@ def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, eve
 
     for op_queue in queues_to_process:
         for op in list(op_queue):
-            if op.opcode == 'TWAIT':
+            if op.opcode == Opcode.TWAIT:
                 if op.args.get('twait') and op.args['twait'].ticket not in completed_tickets:
                     continue
             elif not all(t.name in tensor_ready_time for t in op.inputs):
@@ -183,7 +188,7 @@ def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, eve
 
     op_queue.remove(op)
 
-    if config.mode == 'tight' and op.opcode == 'ENQCMD_T':
+    if config.mode == 'tight' and op.opcode == Opcode.ENQCMD_T:
         npu_op_desc = op.args['enqcmd'].npu_op_desc
         ticket = op.args['enqcmd'].ticket
         heapq.heappush(event_queue, Event(time=best_op_details['end'], type='ENQCMD_COMPLETE', item=(npu_op_desc, ticket)))
@@ -198,17 +203,17 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
     dram_banks, spm, issue_queue, l0_spms, io_buffer = resources['dram_banks'], resources['spm_banks'], resources['issue_queue'], resources['l0_spms'], resources['io_buffer']
     stall_reason, breakdown, booking_info = "NONE", {}, BookingInfo()
 
-    if op.opcode == 'ENQCMD_T':
+    if op.opcode == Opcode.ENQCMD_T:
         issue_start = issue_queue.probe_issue_time(start_cycle)
         duration = config.tight_mode_doorbell_latency
         booking_info.issue_slots.append({'issue_cycle': issue_start})
         return issue_start, issue_start + duration, "NONE", {'control': duration}, booking_info
 
-    if op.opcode == 'TWAIT':
+    if op.opcode == Opcode.TWAIT:
         duration = config.tight_mode_csr_latency
         return start_cycle, start_cycle + duration, "NONE", {'control': duration}, booking_info
 
-    if op.opcode == 'LOAD':
+    if op.opcode == Opcode.LOAD:
         if not op.outputs:
             return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info
         tensor = op.outputs[0]
@@ -221,7 +226,7 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         booking_info.io_buffer_pushes.append({'num_bytes': num_bytes, 'tensor_name': tensor.name})
         return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
 
-    if op.opcode == 'STORE':
+    if op.opcode == Opcode.STORE:
         tensor = op.inputs[0]
         if tensor.name not in tensor_in_buffer:
             return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
@@ -232,7 +237,7 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         booking_info.io_buffer_pops.append({'num_bytes': num_bytes, 'tensor_name': tensor.name})
         return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
 
-    elif op.opcode in ("MatMul", "Conv"):
+    elif op.opcode in (Opcode.MATMUL, Opcode.CONV):
         if not all(t.name in tensor_in_buffer for t in op.inputs):
             return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
         
@@ -275,7 +280,7 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
 
         return op_start_cycle, op_end_cycle, stall_reason, breakdown, booking_info
 
-    elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm", "Erf"):
+    elif op.opcode in (Opcode.GELU, Opcode.SOFTMAX, Opcode.ADD, Opcode.MUL, Opcode.LAYERNORM, Opcode.ERF):
         if not all(t.name in tensor_in_buffer for t in op.inputs):
             return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
         
@@ -302,14 +307,15 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
 
 
 def get_engine_for_op(op: NPUOp, mode: str = 'loose') -> str:
-    if mode == 'tight' and op.opcode in ('ENQCMD_T', 'TWAIT'):
+    if mode == 'tight' and op.opcode in (Opcode.ENQCMD_T, Opcode.TWAIT):
         return "CPU"
-    if op.opcode in ("MatMul", "Conv"):
+    if op.opcode in (Opcode.MATMUL, Opcode.CONV):
         return "TC"
-    elif op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm", "Erf"):
+    elif op.opcode in (Opcode.GELU, Opcode.SOFTMAX, Opcode.ADD, Opcode.MUL, Opcode.LAYERNORM, Opcode.ERF):
         return "VC"
     else:
         return "DMA"
+
 
 def simple_greedy_schedule(p: Program) -> List[ScheduleItem]:
     # ... (rest of the function is unchanged)
