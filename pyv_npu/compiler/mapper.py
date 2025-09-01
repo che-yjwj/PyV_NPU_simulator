@@ -3,19 +3,22 @@ from typing import List, Dict
 from ..ir.model_ir import Graph, Node
 from ..isa.npu_ir import Program, NPUOp, Tensor as NpuTensor
 from ..isa.riscv_ext import ENQCMD_T, TWAIT
+from ..isa.opcode import Opcode
+
 
 def _add_op_args(n: Node, npu_op: NPUOp):
     """Adds necessary args for scheduling from the node's tensors."""
-    if npu_op.opcode in ("MatMul", "Conv"):
+    if npu_op.opcode in (Opcode.MATMUL, Opcode.CONV):
         if len(npu_op.inputs) >= 2:
             m, k = npu_op.inputs[0].shape
             k, n = npu_op.inputs[1].shape
             npu_op.args['tile_m'] = m
             npu_op.args['tile_n'] = n
             npu_op.args['tile_k'] = k
-    elif npu_op.opcode in ("GELU", "Softmax", "Add", "Mul", "LayerNorm"):
+    elif npu_op.opcode in (Opcode.GELU, Opcode.SOFTMAX, Opcode.ADD, Opcode.MUL, Opcode.LAYERNORM):
         if npu_op.inputs:
             npu_op.args['num_elements'] = npu_op.inputs[0].num_elements
+
 
 def map_model_ir_to_npu_program(g: Graph, mode: str = 'loose') -> Program:
     """Maps the Model IR Graph to an NPU Program."""
@@ -26,6 +29,7 @@ def map_model_ir_to_npu_program(g: Graph, mode: str = 'loose') -> Program:
 
     # Fallback or error
     raise ValueError(f"Unknown mapping mode: {mode}")
+
 
 def _map_to_loose_program(g: Graph) -> Program:
     """Helper for loose mode mapping, generating explicit LOAD/STORE ops."""
@@ -40,7 +44,7 @@ def _map_to_loose_program(g: Graph) -> Program:
         try:
             dram_t = NpuTensor.from_model_ir_tensor(g.tensors[init_name])
             spm_t = dram_t.clone_with_suffix("_spm")
-            ops.append(NPUOp(opcode='LOAD', name=f"load_init_{dram_t.name}", inputs=[dram_t], outputs=[spm_t]))
+            ops.append(NPUOp(opcode=Opcode.LOAD, name=f"load_init_{dram_t.name}", inputs=[dram_t], outputs=[spm_t]))
             spm_tensor_map[init_name] = spm_t
         except KeyError as e:
             raise ValueError(f"Error mapping initializer: Tensor {e} not found in graph tensor map.") from e
@@ -54,7 +58,7 @@ def _map_to_loose_program(g: Graph) -> Program:
                 else:
                     dram_t = NpuTensor.from_model_ir_tensor(g.tensors[t_name])
                     spm_t = dram_t.clone_with_suffix("_spm")
-                    ops.append(NPUOp(opcode='LOAD', name=f"load_input_{dram_t.name}", inputs=[dram_t], outputs=[spm_t]))
+                    ops.append(NPUOp(opcode=Opcode.LOAD, name=f"load_input_{dram_t.name}", inputs=[dram_t], outputs=[spm_t]))
                     input_tensors_spm.append(spm_t)
                     spm_tensor_map[t_name] = spm_t
 
@@ -64,8 +68,12 @@ def _map_to_loose_program(g: Graph) -> Program:
                  spm_t = dram_t.clone_with_suffix("_spm")
                  output_tensors_spm.append(spm_t)
                  spm_tensor_map[t_name] = spm_t
+            
+            try:
+                compute_op = NPUOp(opcode=Opcode(n.op_type), name=n.name, args=n.attrs.copy(), inputs=input_tensors_spm, outputs=output_tensors_spm)
+            except ValueError as e:
+                raise ValueError(f"Unsupported ONNX op_type '{n.op_type}' in node '{n.name}'.") from e
 
-            compute_op = NPUOp(opcode=n.op_type, name=n.name, args=n.attrs.copy(), inputs=input_tensors_spm, outputs=output_tensors_spm)
             _add_op_args(n, compute_op)
             ops.append(compute_op)
 
@@ -78,7 +86,7 @@ def _map_to_loose_program(g: Graph) -> Program:
             try:
                 spm_t = spm_tensor_map[out_name]
                 dram_t = NpuTensor.from_model_ir_tensor(g.tensors[out_name])
-                ops.append(NPUOp(opcode='STORE', name=f"store_output_{dram_t.name}", inputs=[spm_t], outputs=[dram_t]))
+                ops.append(NPUOp(opcode=Opcode.STORE, name=f"store_output_{dram_t.name}", inputs=[spm_t], outputs=[dram_t]))
             except KeyError as e:
                 raise ValueError(f"Error mapping output: Tensor {e} not found in graph tensor map.") from e
 
@@ -87,6 +95,7 @@ def _map_to_loose_program(g: Graph) -> Program:
     npu_initializers = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.initializers]
     
     return Program(ops=ops, inputs=npu_inputs, outputs=npu_outputs, initializers=npu_initializers)
+
 
 def _map_to_tight_program(g: Graph) -> Program:
     """Helper for tight mode mapping."""
@@ -103,12 +112,15 @@ def _map_to_tight_program(g: Graph) -> Program:
             raise ValueError(f"Error mapping node {n.name}: Tensor {e} not found in graph tensor map.") from e
 
         # 1. Create the actual NPU operation descriptor
-        npu_op_desc = NPUOp(opcode=n.op_type, name=n.name, args=n.attrs.copy(), inputs=inputs, outputs=outputs)
+        try:
+            npu_op_desc = NPUOp(opcode=Opcode(n.op_type), name=n.name, args=n.attrs.copy(), inputs=inputs, outputs=outputs)
+        except ValueError as e:
+            raise ValueError(f"Unsupported ONNX op_type '{n.op_type}' in node '{n.name}'.") from e
         _add_op_args(n, npu_op_desc)
 
         # 2. Create the ENQCMD_T instruction
         enq_op = NPUOp(
-            opcode='ENQCMD_T',
+            opcode=Opcode.ENQCMD_T,
             name=f"enq_{n.name}",
             args={'enqcmd': ENQCMD_T(npu_op_desc=npu_op_desc, ticket=ticket_counter)}
         )
@@ -116,7 +128,7 @@ def _map_to_tight_program(g: Graph) -> Program:
 
         # 3. Create a corresponding TWAIT instruction
         twait_op = NPUOp(
-            opcode='TWAIT',
+            opcode=Opcode.TWAIT,
             name=f"twait_{ticket_counter}",
             args={'twait': TWAIT(ticket=ticket_counter)}
         )
