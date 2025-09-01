@@ -112,28 +112,23 @@ def test_map_ir_empty_nodes():
     assert len(tight_program.ops) == 0
 
 
-def test_map_ir_unsupported_opcode():
+@pytest.mark.parametrize("mode", ["loose", "tight"])
+def test_map_ir_unsupported_opcode(mode):
     """Tests that an unsupported op_type raises a ValueError."""
     # given
     ir = helper_create_model_ir([Node(name="node1", op_type="UnsupportedOp", inputs=[], outputs=[])])
     # when/then
     with pytest.raises(ValueError, match="Unsupported ONNX op_type"):
-        map_model_ir_to_npu_program(ir, mode='loose')
-
-    with pytest.raises(ValueError, match="Unsupported ONNX op_type"):
-        map_model_ir_to_npu_program(ir, mode='tight')
+        map_model_ir_to_npu_program(ir, mode=mode)
 
 
-def test_map_ir_missing_tensor_info():
+@pytest.mark.parametrize("mode", ["loose", "tight"])
+def test_map_ir_missing_tensor_info(mode):
     """Tests that a missing tensor in the graph's tensor map raises an error."""
     # given
     ir = helper_create_model_ir([Node(name="node1", op_type="MatMul", inputs=["inp", "w1"], outputs=["out1"])])
     # Intentionally remove a required tensor from the map
     del ir.tensors["w1"]
-
     # when/then
     with pytest.raises(ValueError, match="Tensor 'w1' not found"):
-        map_model_ir_to_npu_program(ir, mode='loose')
-
-    with pytest.raises(ValueError, match="Tensor 'w1' not found"):
-        map_model_ir_to_npu_program(ir, mode='tight')
+        map_model_ir_to_npu_program(ir, mode=mode)
