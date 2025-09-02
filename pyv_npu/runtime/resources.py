@@ -6,25 +6,19 @@ from ..isa.npu_ir import Tensor, DTYPE_MAP
 from .memory import DramAddressMapper
 
 class IOBufferTracker:
-    """Models a simple FIFO buffer for data between DMA and Compute."""
+    """Models a buffer for data between DMA and Compute.
+    This is not a strict FIFO, allowing out-of-order consumption,
+    but uses a deque to be able to transition to a strict FIFO later.
+    """
     def __init__(self, config: SimConfig, name: str):
         self.name = name
         self.capacity_bytes = config.io_buffer_size_kb * 1024
         self.current_fill_bytes = 0
-        self.queue = deque()
-        self.resident_tensors = set()
+        self.queue = deque() # Stores (num_bytes, tensor_name)
 
     def can_push(self, num_bytes: int) -> bool:
         """Check if there is enough space to push data."""
         return self.current_fill_bytes + num_bytes <= self.capacity_bytes
-
-    def can_pop(self, num_bytes: int) -> bool:
-        """Check if there is enough data to pop."""
-        return self.current_fill_bytes >= num_bytes
-
-    def can_pop_tensor(self, tensor_name: str) -> bool:
-        """Check if a specific tensor is available in the buffer."""
-        return tensor_name in self.resident_tensors
 
     def push(self, num_bytes: int, tensor_name: str):
         """Push a tensor's data into the buffer."""
@@ -32,20 +26,29 @@ class IOBufferTracker:
             raise ValueError(f"[{self.name}] Buffer overflow! Cannot push {num_bytes} bytes.")
         self.current_fill_bytes += num_bytes
         self.queue.append((num_bytes, tensor_name))
-        self.resident_tensors.add(tensor_name)
+
+    def can_pop_tensor(self, tensor_name: str) -> bool:
+        """Check if a specific tensor is available in the buffer."""
+        return any(name == tensor_name for _, name in self.queue)
 
     def pop(self, num_bytes: int, tensor_name: str):
-        """Pop a specific tensor's data from the buffer."""
+        """Pop a specific tensor's data from the buffer.
+        Note: This is O(N) and not a strict FIFO pop.
+        """
         if not self.can_pop_tensor(tensor_name):
             raise ValueError(f"[{self.name}] Tensor {tensor_name} not in buffer for popping.")
-        if not self.can_pop(num_bytes):
-            raise ValueError(f"[{self.name}] Buffer underflow! Cannot pop {num_bytes} bytes.")
-        
-        # This is a simplified model. A real FIFO would pop from the front.
-        # Here we assume any resident tensor can be popped.
-        self.current_fill_bytes -= num_bytes
-        self.resident_tensors.remove(tensor_name)
-        # In a more complex model, we would need to manage the deque properly
+
+        # Find the tensor in the deque and remove it.
+        for i, (size, name) in enumerate(self.queue):
+            if name == tensor_name:
+                # In a stricter model, we might also validate 'num_bytes' against 'size'.
+                # For now, trust the scheduler to provide the correct size.
+                self.current_fill_bytes -= size
+                del self.queue[i]
+                return
+
+        # This should not be reached if can_pop_tensor is called first.
+        raise ValueError(f"[{self.name}] Inconsistency: Tensor {tensor_name} found by can_pop_tensor but not in pop.")
 
 
 class L0SPMTracker:

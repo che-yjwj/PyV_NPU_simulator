@@ -58,7 +58,6 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
     # --- State Tracking ---
     tensor_ready_time: Dict[str, int] = {t.name: 0 for t in p.inputs}
     tensor_ready_time.update({t.name: 0 for t in p.initializers})
-    tensor_in_buffer: Set[str] = set()
     completed_tickets: Set[int] = set()
     op_pending_time: Dict[str, int] = {}
 
@@ -99,7 +98,7 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
                 tensor_ready_time=tensor_ready_time, completed_tickets=completed_tickets,
                 engine_pools={'TC': tc_free_time, 'VC': vc_free_time, 'DMA': dma_free_time, 'CPU': cpu_free_time},
                 resource_trackers={'dram_banks': dram_bank_tracker, 'spm_banks': spm_banks, 'issue_queue': issue_queue, 'l0_spms': l0_spm_trackers, 'io_buffer': io_buffer},
-                op_pending_time=op_pending_time, tensor_in_buffer=tensor_in_buffer
+                op_pending_time=op_pending_time
             )
 
     schedule.sort(key=lambda x: x.start_cycle)
@@ -107,9 +106,10 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
     return schedule, stats
 
 
-def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers, tensor_in_buffer):
+def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers):
     best_op_details = None
     earliest_start_time = float('inf')
+    io_buffer = resource_trackers['io_buffer']
 
     queues_to_process = [cpu_op_queue]
     if config.mode == 'tight':
@@ -132,7 +132,7 @@ def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, eve
             for i, engine_free_time in enumerate(engine_pool):
                 tentative_start_time = max(ideal_start_time, engine_free_time)
                 
-                actual_start, actual_end, reason, breakdown, booking = calculate_op_timing(op, tentative_start_time, config, resource_trackers, engine_idx=i, tensor_in_buffer=tensor_in_buffer)
+                actual_start, actual_end, reason, breakdown, booking = calculate_op_timing(op, tentative_start_time, config, resource_trackers, engine_idx=i)
                 
                 if actual_start < earliest_start_time:
                     earliest_start_time = actual_start
@@ -161,21 +161,18 @@ def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, eve
     best_engine_idx = best_op_details['engine_idx']
     best_booking_info = best_op_details['booking_info']
 
-    dram_banks, spm, issue_queue, io_buffer = resource_trackers['dram_banks'], resource_trackers['spm_banks'], resource_trackers['issue_queue'], resource_trackers['io_buffer']
+    dram_banks, spm, issue_queue = resource_trackers['dram_banks'], resource_trackers['spm_banks'], resource_trackers['issue_queue']
     
     if best_op_details['stall_breakdown'].get("RESOURCE_DRAM_BANK"): dram_banks.collisions += 1
     for booking in best_booking_info.dram_transfers: dram_banks.commit_transfer(**booking)
     for booking in best_booking_info.spm_slots: spm.commit_slot(**booking)
     for booking in best_booking_info.issue_slots: issue_queue.commit_issue(**booking)
 
-    # Commit IO buffer changes immediately and synchronize state
+    # Commit IO buffer changes
     for pop_info in best_booking_info.io_buffer_pops:
         io_buffer.pop(**pop_info)
-        if pop_info['tensor_name'] in tensor_in_buffer:
-            tensor_in_buffer.remove(pop_info['tensor_name'])
     for push_info in best_booking_info.io_buffer_pushes:
         io_buffer.push(**push_info)
-        tensor_in_buffer.add(push_info['tensor_name'])
     
     engine_pool = engine_pools[best_op_details['engine']]
     engine_pool[best_engine_idx] = best_op_details['end']
@@ -215,7 +212,7 @@ def _calculate_control_op_timing(op: NPUOp, start_cycle: int, config: SimConfig,
         return start_cycle, start_cycle + duration, "NONE", {'control': duration}, booking_info
 
 
-def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], tensor_in_buffer: Set[str], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
     dram_banks, io_buffer = resources['dram_banks'], resources['io_buffer']
     booking_info = BookingInfo()
     breakdown = {}
@@ -235,7 +232,7 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
 
     if op.opcode == Opcode.STORE:
         tensor = op.inputs[0]
-        if tensor.name not in tensor_in_buffer:
+        if not io_buffer.can_pop_tensor(tensor.name):
             return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
         
         num_bytes = tensor.num_elements * DTYPE_MAP.get(tensor.dtype, 1)
@@ -245,12 +242,12 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
         return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
 
 
-def _calculate_tc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], engine_idx: int, tensor_in_buffer: Set[str], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+def _calculate_tc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], engine_idx: int, **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
     spm, l0_spms, io_buffer = resources['spm_banks'], resources['l0_spms'], resources['io_buffer']
     booking_info = BookingInfo()
     breakdown = {}
 
-    if not all(t.name in tensor_in_buffer for t in op.inputs):
+    if not all(io_buffer.can_pop_tensor(t.name) for t in op.inputs):
         return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
     
     for t in op.inputs:
@@ -294,12 +291,12 @@ def _calculate_tc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, reso
     return op_start_cycle, op_end_cycle, stall_reason, breakdown, booking_info
 
 
-def _calculate_vc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], tensor_in_buffer: Set[str], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+def _calculate_vc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
     spm, io_buffer = resources['spm_banks'], resources['io_buffer']
     booking_info = BookingInfo()
     breakdown = {}
 
-    if not all(t.name in tensor_in_buffer for t in op.inputs):
+    if not all(io_buffer.can_pop_tensor(t.name) for t in op.inputs):
         return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
     
     for t in op.inputs:
@@ -324,7 +321,7 @@ def _calculate_vc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, reso
     return compute_start_cycle, compute_start_cycle + compute_cycles, stall_reason, breakdown, booking_info
 
 
-def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], engine_idx: int, tensor_in_buffer: Set[str]) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
+def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], engine_idx: int) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
     """
     Calculates the start and end cycle for an NPU operation, considering resource availability.
     This function is a dispatcher that calls the appropriate helper based on the opcode.
@@ -347,7 +344,7 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
     handler = opcode_to_handler.get(op.opcode)
 
     if handler:
-        return handler(op=op, start_cycle=start_cycle, config=config, resources=resources, engine_idx=engine_idx, tensor_in_buffer=tensor_in_buffer)
+        return handler(op=op, start_cycle=start_cycle, config=config, resources=resources, engine_idx=engine_idx)
     else:
         # Default case for unknown or simple ops
         return start_cycle, start_cycle + 1, "NONE", {}, BookingInfo()
