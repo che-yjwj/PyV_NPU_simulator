@@ -86,3 +86,9 @@ def test_pop_non_existent(io_buffer):
     io_buffer.push(100, "tensor_a")
     with pytest.raises(ValueError, match="not in buffer for popping"):
         io_buffer.pop(100, "tensor_b")
+
+def test_pop_size_mismatch(io_buffer):
+    """Tests that popping a tensor with an incorrect size raises a ValueError."""
+    io_buffer.push(100, "tensor_a")
+    with pytest.raises(ValueError, match="Size mismatch for tensor tensor_a"):
+        io_buffer.pop(99, "tensor_a")

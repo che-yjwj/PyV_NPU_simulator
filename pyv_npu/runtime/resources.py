@@ -41,8 +41,9 @@ class IOBufferTracker:
         # Find the tensor in the deque and remove it.
         for i, (size, name) in enumerate(self.queue):
             if name == tensor_name:
-                # In a stricter model, we might also validate 'num_bytes' against 'size'.
-                # For now, trust the scheduler to provide the correct size.
+                # Validate that the size provided by the scheduler matches the stored size.
+                if num_bytes != size:
+                    raise ValueError(f"[{self.name}] Size mismatch for tensor {tensor_name}. Expected {size}, got {num_bytes}.")
                 self.current_fill_bytes -= size
                 del self.queue[i]
                 return
