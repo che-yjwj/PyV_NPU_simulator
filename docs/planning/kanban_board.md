@@ -1,13 +1,13 @@
-v250813b
+v250903b
 # PyV-NPU Simulator 개선 과제 칸반보드(chatgpt)
 
 ## 다음 작업 우선순위 (Top 5 Next Tasks)
 
-1.  **(Backlog / P0)** **REF-03 | Opcode 상수화**: 코드 안정성 확보를 위해 하드코딩된 Opcode 문자열을 Enum으로 변경합니다. (Effort: Small)
-2.  **(Backlog / P0)** **REF-02 | 스케줄러 가독성 개선**: `calculate_op_timing` 함수를 리팩토링하여 복잡도를 낮추고 유지보수성을 확보합니다. (Effort: Medium)
-3.  **(Backlog / P1)** **TST-01 | 테스트 커버리지 확대**: `mapper.py`와 다양한 `SimConfig` 조합에 대한 테스트를 추가하여 신뢰도를 높입니다. (Effort: Medium)
-4.  **(Backlog / P1)** **M-01 | 메모리/버스 모델 고도화 v1**: `IOBufferTracker`의 FIFO 동작을 개선하고, 시스템 버스 모델을 추가하여 시뮬레이션 정확도를 높입니다. (Effort: Large)
-5.  **(Backlog / P1)** **ARC-02 | Py-V L1 캐시 구현**: `Py-V` RISC-V 코어에 L1 캐시를 추가하여 CPU 모델의 현실성을 높입니다. (Effort: Medium)
+1.  **(Backlog / P1)** **TST-01 | 테스트 커버리지 확대**: `mapper.py`와 다양한 `SimConfig` 조합에 대한 테스트를 추가하여 신뢰도를 높입니다. (Effort: Medium)
+2.  **(Backlog / P1)** **M-01 | 메모리/버스 모델 고도화 v1**: `IOBufferTracker`의 FIFO 동작을 개선하고, 시스템 버스 모델을 추가하여 시뮬레이션 정확도를 높입니다. (Effort: Large)
+3.  **(Backlog / P1)** **ARC-02 | Py-V L1 캐시 구현**: `Py-V` RISC-V 코어에 L1 캐시를 추가하여 CPU 모델의 현실성을 높입니다. (Effort: Medium)
+4.  **(Backlog / P1)** **ARC-01 | L2 캐시 모델 구현**: NPU 클러스터에 하드웨어 관리형 L2 캐시 모델을 구현합니다. (Effort: Large)
+5.  **(Backlog / P1)** **C-02 | VC 코스트 모델 v1**: RVV 유사 제약(벡터 길이/issue rate) 반영한 element-wise/Reduce 코스트 모델 (Effort: Medium)
 
 ---
 
@@ -16,18 +16,6 @@ v250813b
 ---
 
 ## Backlog
-
-### REF-03 | Opcode 상수화
-- **요약**: 코드 전반에 하드코딩된 Opcode 문자열을 `Enum` 클래스로 정의하여 오타 방지 및 일관성 확보.
-- **수용기준**: `mapper.py`, `scheduler.py` 등에서 `Enum` 타입으로 Opcode를 비교하도록 수정.
-- **우선순위**: P0 / **사이즈**: S / **의존성**: — / **태그**: 리팩토링
-
-### REF-02 | 스케줄러 가독성 개선
-- **요약**: `scheduler.py`의 복잡한 함수(`run_scheduler_pass`, `calculate_op_timing`) 내부 로직을 Opcode별 헬퍼 함수 등으로 분리하여 가독성 및 유지보수성 향상.
-- **수용기준**: 함수 라인 수 감소 및 복잡도 지표 개선. 기존 스케줄러 테스트 통과.
-- **우선순위**: P0 / **사이즈**: M / **의존성**: — / **태그**: 리팩토링, 스케줄러
-
-
 
 ### M-01 | 메모리/버스 모델 고도화 v1
 - **요약**: SPM bank 포트 수, DMA burst, DRAM 채널/페이지 정책(오픈/클로즈드) 파라미터화. `IOBufferTracker`의 FIFO 동작 개선 및 시스템 버스 모델 추가.
@@ -123,6 +111,18 @@ v250813b
 ---
 
 ## Done
+
+### REF-02 | 스케줄러 가독성 개선
+- **요약**: `scheduler.py`의 복잡한 함수(`run_scheduler_pass`) 내부 로직을 Opcode별 헬퍼 함수 등으로 분리하여 가독성 및 유지보수성 향상.
+- **내용**: `run_scheduler_pass` 함수에서 다음 스케줄링할 최적의 후보 연산을 찾는 로직을 `_find_best_candidate_op` 헬퍼 함수로 분리하여 복잡도를 낮추고 가독성을 개선함.
+- **수용기준**: 함수 라인 수 감소 및 복잡도 지표 개선. 기존 스케줄러 테스트 통과.
+- **우선순위**: P0 / **사이즈**: M / **의존성**: — / **태그**: 리팩토링, 스케줄러
+
+### REF-03 | Opcode 상수화
+- **요약**: 코드 전반에 하드코딩된 Opcode 문자열을 `Enum` 클래스로 정의하여 오타 방지 및 일관성 확보.
+- **내용**: 코드 분석 결과, `pyv_npu/isa/opcode.py`에 `Opcode` Enum이 이미 정의되어 있고, `mapper.py`와 `scheduler.py` 등 핵심 로직에서 사용되고 있음을 확인. 기존에 제기되었던 리팩토링 필요성이 대부분 해결된 상태.
+- **수용기준**: `mapper.py`, `scheduler.py` 등에서 `Enum` 타입으로 Opcode를 비교하도록 수정.
+- **우선순위**: P0 / **사이즈**: S / **의존성**: — / **태그**: 리팩토링
 
 ### TST-01 | 테스트 커버리지 확대
 - **요약**: `mapper.py`의 모드별 변환 로직, `reporting.py`의 통계 계산, 다양한 `SimConfig` 옵션 조합에 대한 단위/통합 테스트 추가.

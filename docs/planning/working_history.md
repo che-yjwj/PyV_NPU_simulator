@@ -1,3 +1,13 @@
+V250903b - 스케줄러 리팩토링 완료 (feature/ref-02-scheduler-refactoring):
+  - `run_scheduler_pass`의 복잡도를 낮추기 위해, 최적의 다음 연산을 찾는 로직을 `_find_best_candidate_op` 헬퍼 함수로 분리.
+  - 리팩토링 후 `pytest`를 실행하여 전체 테스트(246개)가 통과하는 것을 확인, 코드 안정성을 검증.
+  - `kanban_board.md`의 `REF-02` 항목을 `Done`으로 이동하여 문서 상태를 동기화.
+
+V250903a - 칸반 보드 동기화 및 스케줄러 리팩토링 시작 (feature/ref-02-scheduler-refactoring):
+  - 코드베이스 분석 결과, `REF-03 | Opcode 상수화` 과제가 이미 대부분 완료되었음을 확인.
+  - 칸반 보드(`kanban_board.md`)의 `REF-03`을 `Done`으로 이동하고, `REF-02 | 스케줄러 가독성 개선`을 `In-Progress`로 변경하여 현재 상태를 정확히 반영.
+  - `REF-02` 작업을 위해 `feature/ref-02-scheduler-refactoring` 브랜치를 생성하고, `scheduler.py`의 `run_scheduler_pass` 함수 리팩토링 작업을 시작.
+
 V250901c - TST-01: mapper.py 테스트 커버리지 확대 (feature/tst-01-add-mapper-tests):
   - `compiler/mapper.py`의 리팩토링된 코드 구조(`Graph` 클래스, `map_model_ir_to_npu_program` 함수)에 맞춰 테스트 코드를 전면 수정.
   - `loose` 및 `tight` 모드에 대한 다중 연산, 빈 모델, 미지원 Opcode 등 엣지 케이스 테스트를 보강하여 안정성 향상.
@@ -212,7 +222,7 @@ V250812b
   │ **L0/L1 기능/타일-타임 (M0... │ 기본 구현                            │ runtime/simulator.py, `runtime/schedul... │
   │ L2 이벤트/자원 모델 (M2)    │ 초기 단계 (스케줄러 선택 로직만 ...  │ runtime/simulator.py                      │
   │ TC Custom ISA 설계 (M3)     │ 완료 (데이터 구조 정의)              │ isa/riscv_ext.py                          │
-  │ 컴파일러 패스 (M3)          │ 뼈대만 구현                          │ compiler/passes/*.py                      │
+  │ 컴파일러 패스_ (M3)          │ 뼈대만 구현                          │ compiler/passes/*.py                      │
   │ Py-V 연동 (M4)              │ 미구현 (CLI 옵션만 존재)             │ cli/main.py                               │
   │ 상세 리포트 (HTML/SVG)      │ 미구현 (기본 JSON 리포트만 제공)     │ runtime/simulator.py                      │
   └─────────────────────────────┴──────────────────────────────────────┴───────────────────────────────────────────┘
