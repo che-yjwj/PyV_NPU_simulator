@@ -106,29 +106,29 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
     return schedule, stats
 
 
-def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers):
+def _find_best_candidate_op(op_queues, time, config, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers):
+    """Iterates through ready ops and finds the one that can start earliest."""
     best_op_details = None
     earliest_start_time = float('inf')
-    io_buffer = resource_trackers['io_buffer']
 
-    queues_to_process = [cpu_op_queue]
-    if config.mode == 'tight':
-        queues_to_process.append(npu_work_queue)
-
-    for op_queue in queues_to_process:
+    for op_queue in op_queues:
         for op in list(op_queue):
+            # Check if the operation is ready to be scheduled
             if op.opcode == Opcode.TWAIT:
                 if op.args.get('twait') and op.args['twait'].ticket not in completed_tickets:
                     continue
             elif not all(t.name in tensor_ready_time for t in op.inputs):
-                if op.name not in op_pending_time: op_pending_time[op.name] = time
+                if op.name not in op_pending_time:
+                    op_pending_time[op.name] = time
                 continue
 
             ideal_start_time = max((tensor_ready_time.get(t.name, 0) for t in op.inputs), default=time)
             engine_type = get_engine_for_op(op, config.mode)
             engine_pool = engine_pools.get(engine_type)
-            if not engine_pool: continue
+            if not engine_pool:
+                continue
 
+            # Find the best engine for this operation
             for i, engine_free_time in enumerate(engine_pool):
                 tentative_start_time = max(ideal_start_time, engine_free_time)
                 
@@ -137,62 +137,93 @@ def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, eve
                 if actual_start < earliest_start_time:
                     earliest_start_time = actual_start
                     first_pending_time = op_pending_time.get(op.name, time)
+                    
+                    # Calculate stall breakdown
                     stall_breakdown = {}
                     dep_stall = ideal_start_time - first_pending_time
-                    if dep_stall > 0: stall_breakdown["DEP"] = dep_stall
+                    if dep_stall > 0:
+                        stall_breakdown["DEP"] = dep_stall
+                    
                     resource_stall = actual_start - ideal_start_time
                     if resource_stall > 0:
-                        if engine_free_time > ideal_start_time: stall_breakdown["RESOURCE_ENGINE"] = resource_stall
-                        elif reason != "NONE": stall_breakdown[reason] = resource_stall
+                        if engine_free_time > ideal_start_time:
+                            stall_breakdown["RESOURCE_ENGINE"] = resource_stall
+                        elif reason != "NONE":
+                            stall_breakdown[reason] = resource_stall
                     
                     best_op_details = {
-                        'op': op,
-                        'op_queue': op_queue,
-                        'start': actual_start, 'end': actual_end, 'engine': engine_type, 'engine_idx': i,
-                        'stall_cycles': sum(stall_breakdown.values()),
-                        'stall_breakdown': stall_breakdown, 'cycle_breakdown': breakdown,
-                        'booking_info': booking
+                        'op': op, 'op_queue': op_queue, 'start': actual_start, 'end': actual_end,
+                        'engine': engine_type, 'engine_idx': i, 'stall_cycles': sum(stall_breakdown.values()),
+                        'stall_breakdown': stall_breakdown, 'cycle_breakdown': breakdown, 'booking_info': booking
                     }
+    return best_op_details
 
-    if not best_op_details: return
 
+def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, event_queue, tensor_ready_time, completed_tickets, op_pending_time, engine_pools, resource_trackers):
+    """
+    Finds the best operation to schedule next and commits it.
+    """
+    op_queues = [cpu_op_queue]
+    if config.mode == 'tight':
+        op_queues.append(npu_work_queue)
+
+    best_op_details = _find_best_candidate_op(
+        op_queues, time, config, tensor_ready_time, completed_tickets,
+        op_pending_time, engine_pools, resource_trackers
+    )
+
+    if not best_op_details:
+        return
+
+    # --- Commit the chosen operation ---
     op = best_op_details['op']
     op_queue = best_op_details['op_queue']
-    best_engine_idx = best_op_details['engine_idx']
-    best_booking_info = best_op_details['booking_info']
+    engine_type = best_op_details['engine']
+    engine_idx = best_op_details['engine_idx']
+    booking_info = best_op_details['booking_info']
+    end_cycle = best_op_details['end']
 
-    dram_banks, spm, issue_queue = resource_trackers['dram_banks'], resource_trackers['spm_banks'], resource_trackers['issue_queue']
-    
-    if best_op_details['stall_breakdown'].get("RESOURCE_DRAM_BANK"): dram_banks.collisions += 1
-    for booking in best_booking_info.dram_transfers: dram_banks.commit_transfer(**booking)
-    for booking in best_booking_info.spm_slots: spm.commit_slot(**booking)
-    for booking in best_booking_info.issue_slots: issue_queue.commit_issue(**booking)
+    # Commit resource bookings
+    dram_banks = resource_trackers['dram_banks']
+    spm = resource_trackers['spm_banks']
+    issue_queue = resource_trackers['issue_queue']
+    io_buffer = resource_trackers['io_buffer']
 
-    # Commit IO buffer changes
-    for pop_info in best_booking_info.io_buffer_pops:
+    if best_op_details['stall_breakdown'].get("RESOURCE_DRAM_BANK"):
+        dram_banks.collisions += 1
+    for booking in booking_info.dram_transfers:
+        dram_banks.commit_transfer(**booking)
+    for booking in booking_info.spm_slots:
+        spm.commit_slot(**booking)
+    for booking in booking_info.issue_slots:
+        issue_queue.commit_issue(**booking)
+    for pop_info in booking_info.io_buffer_pops:
         io_buffer.pop(**pop_info)
-    for push_info in best_booking_info.io_buffer_pushes:
+    for push_info in booking_info.io_buffer_pushes:
         io_buffer.push(**push_info)
     
-    engine_pool = engine_pools[best_op_details['engine']]
-    engine_pool[best_engine_idx] = best_op_details['end']
+    # Update engine availability
+    engine_pools[engine_type][engine_idx] = end_cycle
 
+    # Add to schedule
     schedule.append(ScheduleItem(
-        op=op, start_cycle=best_op_details['start'], end_cycle=best_op_details['end'],
-        engine=f"{best_op_details['engine']}{best_engine_idx}", stall_cycles=best_op_details['stall_cycles'],
+        op=op, start_cycle=best_op_details['start'], end_cycle=end_cycle,
+        engine=f"{engine_type}{engine_idx}", stall_cycles=best_op_details['stall_cycles'],
         stall_breakdown=best_op_details['stall_breakdown'], cycle_breakdown=best_op_details['cycle_breakdown']
     ))
 
+    # Remove from queue and push completion event
     op_queue.remove(op)
 
     if config.mode == 'tight' and op.opcode == Opcode.ENQCMD_T:
         npu_op_desc = op.args['enqcmd'].npu_op_desc
         ticket = op.args['enqcmd'].ticket
-        heapq.heappush(event_queue, Event(time=best_op_details['end'], type='ENQCMD_COMPLETE', item=(npu_op_desc, ticket)))
+        heapq.heappush(event_queue, Event(time=end_cycle, type='ENQCMD_COMPLETE', item=(npu_op_desc, ticket)))
     else:
         ticket = op.args.get('_ticket')
-        heapq.heappush(event_queue, Event(time=best_op_details['end'], type='OP_COMPLETE', item=(op, best_op_details['end'], ticket, best_engine_idx, best_booking_info)))
+        heapq.heappush(event_queue, Event(time=end_cycle, type='OP_COMPLETE', item=(op, end_cycle, ticket, engine_idx, booking_info)))
     
+    # Trigger next scheduling check
     heapq.heappush(event_queue, Event(time, 'CHECK_SCHED'))
 
 
