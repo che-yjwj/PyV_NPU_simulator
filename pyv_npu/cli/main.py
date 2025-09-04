@@ -13,7 +13,7 @@ from ..config import SimConfig
 from ..utils.reporting import generate_report
 
 
-def def cmd_compile(args):
+def cmd_compile(args):
     """Handles the 'compile' command."""
     print(f"Compiling model: {args.model} with mode: {args.mode}")
     model_ir = load_onnx_as_model_ir(args.model)
