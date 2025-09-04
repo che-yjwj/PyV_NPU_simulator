@@ -129,9 +129,13 @@ class NPUControlMemory(Module, Clocked):
             elif addr == REG_IRQ_MASK:
                 val = self.irq_mask
             else:
-                logger.warning(f"NPUControlMemory: Read from unhandled MMIO address {addr:08X}")
+                logger.warning(
+                    f"NPUControlMemory: Read from unhandled MMIO address {addr:08X}"
+                )
             
-            logger.debug(f"MEM ({self.name}): read value {val:08X} from MMIO address {addr:08X}")
+            logger.debug(
+                f"MEM ({self.name}): read value {val:08X} from MMIO address {addr:08X}"
+            )
             return val
 
         # During the processing of the current cycle, it might occur that
@@ -157,7 +161,9 @@ class NPUControlMemory(Module, Clocked):
                 raise Exception(
                     f'ERROR (Memory ({self.name}), read): Invalid width {w}')
 
-            logger.debug(f"MEM ({self.name}): read value {val:08X} from address {addr:08X}")  # noqa: E501
+            logger.debug(
+                f"MEM ({self.name}): read value {val:08X} from address {addr:08X}"
+            )
         except IndexError:
             val = 0
 
@@ -208,29 +214,42 @@ class NPUControlMemory(Module, Clocked):
                 elif addr == REG_QUEUE_BASE_LO:
                     self.queue_base = (self.queue_base & 0xFFFFFFFF00000000) | wdata
                 elif addr == REG_QUEUE_BASE_HI:
-                    self.queue_base = (self.queue_base & 0x00000000FFFFFFFF) | (wdata << 32)
+                    self.queue_base = (self.queue_base & 0x00000000FFFFFFFF) | \
+                        (wdata << 32)
                 elif addr == REG_QUEUE_TAIL_LO:
                     self.queue_tail = (self.queue_tail & 0xFFFFFFFF00000000) | wdata
-                    logger.info(f"NPUControlMemory: QUEUE_TAIL set to {self.queue_tail:X}")
+                    logger.info(
+                        f"NPUControlMemory: QUEUE_TAIL set to {self.queue_tail:X}"
+                    )
                 elif addr == REG_QUEUE_TAIL_HI:
-                    self.queue_tail = (self.queue_tail & 0x00000000FFFFFFFF) | (wdata << 32)
-                    logger.info(f"NPUControlMemory: QUEUE_TAIL set to {self.queue_tail:X}")
+                    self.queue_tail = (self.queue_tail & 0x00000000FFFFFFFF) | \
+                        (wdata << 32)
+                    logger.info(
+                        f"NPUControlMemory: QUEUE_TAIL set to {self.queue_tail:X}"
+                    )
                 elif addr == REG_IRQ_MASK:
                     self.irq_mask = wdata
-                    logger.info(f"NPUControlMemory: IRQ_MASK set to {wdata:08X}")
+                    logger.info(
+                        f"NPUControlMemory: IRQ_MASK set to {wdata:08X}"
+                    )
                 elif addr == REG_IRQ_STATUS:
                     # Write-1-to-clear semantics
                     self.irq_status &= ~wdata
-                    logger.info(f"NPUControlMemory: IRQ_STATUS cleared by write. New status: {self.irq_status:08X}")
+                    logger.info(
+                        f"NPUControlMemory: IRQ_STATUS cleared by write. New status: {self.irq_status:08X}"
+                    )
                 else:
-                    logger.warning(f"NPUControlMemory: Write to unhandled MMIO address {addr:08X}")
+                    logger.warning(
+                        f"NPUControlMemory: Write to unhandled MMIO address {addr:08X}"
+                    )
                 return
 
             if not (w == 1 or w == 2 or w == 4):
                 raise Exception(
                     f'ERROR (Memory ({self.name}), write): Invalid width {w}')
             logger.debug(
-                f"MEM {self.name}: write {wdata:08X} to address {addr:08X}")
+                f"MEM {self.name}: write {wdata:08X} to address {addr:08X}"
+            )
 
             if w == 1:  # byte
                 self.mem[addr] = 0xff & wdata
@@ -253,3 +272,5 @@ class NPUControlMemory(Module, Clocked):
         """
         for i in range(0, len(self.mem)):
             self.mem[i] = 0
+
+    

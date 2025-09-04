@@ -47,3 +47,20 @@ def test_config_cli_override(tmp_path: Path):
     assert config.sim_level == 'CA_FULL' # Overridden value
     assert config.tc == 8                # Overridden value
     assert config.mode == 'tight'        # Value from YAML
+
+
+def test_config_cycles_conversion():
+    """Tests the conversion from seconds to clock cycles."""
+    # given
+    config = SimConfig()
+    config.clock_ghz = 1.2
+
+    # when
+    one_second_cycles = config.cycles(1.0)
+    half_second_cycles = config.cycles(0.5)
+    zero_cycles = config.cycles(0)
+
+    # then
+    assert one_second_cycles == 1_200_000_000
+    assert half_second_cycles == 600_000_000
+    assert zero_cycles == 0

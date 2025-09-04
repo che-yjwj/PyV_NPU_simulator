@@ -132,3 +132,63 @@ def test_map_ir_missing_tensor_info(mode):
     # when/then
     with pytest.raises(ValueError, match="Tensor 'w1' not found"):
         map_model_ir_to_npu_program(ir, mode=mode)
+
+def test_map_ir_unknown_mode():
+    """Tests that an unknown mapping mode raises a ValueError."""
+    # given
+    ir = helper_create_model_ir([])
+    # when/then
+    with pytest.raises(ValueError, match="Unknown mapping mode: invalid_mode"):
+        map_model_ir_to_npu_program(ir, mode='invalid_mode')
+
+
+def test_map_ir_loose_mode_graph_split():
+    """Tests mapping a graph with a 1-to-many fan-out in loose mode."""
+    # given
+    tensors = {
+        "inp": Tensor(name="inp", shape=(1, 128), dtype="float32"),
+        "w1": Tensor(name="w1", shape=(128, 128), dtype="float32"),
+        "w2": Tensor(name="w2", shape=(128, 128), dtype="float32"),
+        "out1": Tensor(name="out1", shape=(1, 128), dtype="float32"),
+        "out2": Tensor(name="out2", shape=(1, 128), dtype="float32"),
+        "final_out": Tensor(name="final_out", shape=(1, 128), dtype="float32"),
+    }
+    nodes = [
+        Node(name="node1", op_type="MatMul", inputs=["inp", "w1"], outputs=["out1"]),
+        # out1 is used by both node2 and node3
+        Node(name="node2", op_type="MatMul", inputs=["out1", "w2"], outputs=["out2"]),
+        Node(name="node3", op_type="GELU", inputs=["out1"], outputs=["final_out"]),
+    ]
+    ir = Graph(
+        nodes=nodes,
+        inputs=["inp"],
+        outputs=["out2", "final_out"],
+        initializers=["w1", "w2"],
+        tensors=tensors,
+    )
+
+    # when
+    program = map_model_ir_to_npu_program(ir, mode='loose')
+
+    # then
+    # Check that the intermediate tensor 'out1' is created once in SPM.
+    out1_spm_tensor = None
+    for op in program.ops:
+        if op.name == "node1":
+            out1_spm_tensor = op.outputs[0]
+            break
+    
+    assert out1_spm_tensor is not None, "SPM tensor for out1 not found"
+
+    # Ensure that the subsequent nodes (node2, node3) use this same SPM tensor
+    # and don't trigger another LOAD operation for 'out1'.
+    node2_input = next(op.inputs[0] for op in program.ops if op.name == "node2")
+    node3_input = next(op.inputs[0] for op in program.ops if op.name == "node3")
+
+    assert node2_input is out1_spm_tensor
+    assert node3_input is out1_spm_tensor
+
+    # Verify no redundant LOAD for 'out1'
+    load_ops = [op for op in program.ops if op.opcode == Opcode.LOAD]
+    load_op_dram_names = [op.inputs[0].name for op in load_ops]
+    assert "out1" not in load_op_dram_names
