@@ -4,7 +4,7 @@ import pytest
 from pyv_npu.config import SimConfig
 from pyv_npu.isa.npu_ir import NPUOp
 from pyv_npu.runtime.scheduler import ScheduleItem
-from pyv_npu.utils.reporting import generate_report_json, generate_html_report, generate_report, generate_ascii_gantt
+from pyv_npu.utils.reporting import generate_report_json, generate_report
 from pyv_npu.utils import reporting
 
 @pytest.fixture
@@ -42,22 +42,6 @@ def test_generate_report_json(sample_schedule, sample_config):
     op2_report = timeline[1]
     assert op2_report['op'] == 'GELU'
     assert op2_report.get('compute', 0) == 0
-
-def test_generate_html_report(sample_schedule, sample_config, tmp_path: Path):
-    """Tests that the HTML report runs and includes breakdown data."""
-    report_data = generate_report_json(sample_schedule, sample_config, stats={})
-    output_dir = tmp_path / "report"
-    
-    generate_html_report(report_data, output_dir)
-    
-    html_file = output_dir / "report.html"
-    assert html_file.exists()
-    
-    content = html_file.read_text(encoding='utf-8')
-    # Check for data that must be in the report, rather than a specific title string
-    assert "GELU" in content # Check if op type is in the report data
-    assert "op1" in content  # Check if op name is in the report data
-    assert "fill_drain" in content
 
 def test_aggregate_statistics_calculation():
     """Tests the calculation of aggregate stats like utilization and stalls."""
@@ -114,28 +98,27 @@ def test_generate_report_json_empty_schedule():
     assert report["timeline"] == []
     assert report["engine_utilization"] == {}
 
-def test_generate_ascii_gantt(capsys):
-    """Tests the ASCII gantt chart generation."""
-    report_data = {
-        "total_cycles": 100,
-        "timeline": [
-            {'engine': 'TC0', 'start': 10, 'end': 30, 'op': 'MatMul'},
-            {'engine': 'DMA0', 'start': 0, 'end': 15, 'op': 'Load'},
-        ]
-    }
-    generate_ascii_gantt(report_data, width=20)
-    captured = capsys.readouterr()
-    assert "TC0" in captured.out
-    assert "DMA0" in captured.out
-    assert "M" in captured.out # MatMul
-    assert "L" in captured.out # Load
-
-def test_generate_report_full(sample_schedule, sample_config, tmp_path: Path):
-    """Tests the main generate_report function that writes files."""
-    # The config needs a report_dir
+def test_generate_report_full(sample_schedule, sample_config, tmp_path: Path, capsys):
+    """Tests the main generate_report function that writes all artifacts."""
     sample_config.report_dir = str(tmp_path)
 
     generate_report(sample_schedule, sample_config, {})
 
-    output_dir = tmp_path
-    assert (output_dir / "report.json").exists()
+    # Check for JSON report
+    assert (tmp_path / "report.json").exists()
+
+    # Check for HTML report
+    html_file = tmp_path / "report.html"
+    assert html_file.exists()
+    content = html_file.read_text(encoding='utf-8')
+    assert "GELU" in content
+    assert "op1" in content
+    assert "stall_cycles" in content
+
+    # Check for ASCII Gantt in stdout
+    captured = capsys.readouterr()
+    assert "ASCII Gantt Chart" in captured.out
+    assert "TC0" in captured.out
+    assert "VC0" in captured.out
+    assert "M" in captured.out # Check for op name in ASCII chart (via op char)
+
