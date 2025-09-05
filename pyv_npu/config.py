@@ -46,6 +46,7 @@ class SimConfig:
 
     bw_dram_gbps: float = 102.4
     bw_noc_gbps: float = 256.0
+    bw_bus_gbps: float = 128.0 # System bus bandwidth
     clock_ghz: float = 1.2
 
     # DRAM Physical Parameters

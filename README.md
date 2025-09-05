@@ -135,6 +135,7 @@ The simulator starts with a set of default hardware parameters, which can be cus
 | DMA Channels      | 2             | To support double-buffering               |
 | DRAM Bandwidth    | 102.4 GB/s    | Modeled using a token bucket              |
 | NoC Bandwidth     | 256 GB/s      | Link bandwidth for the Network-on-Chip    |
+| System Bus Bandwidth| 128.0 GB/s    | Shared bus for system-level data transfer |
 | Frequency         | 1.2 GHz       | Clock frequency for timing calculations   |
 | Tile (M,N,K)      | 128,128,64    | Default dimensions for GEMM operations    |
 

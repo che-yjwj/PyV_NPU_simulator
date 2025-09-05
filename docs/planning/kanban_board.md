@@ -15,10 +15,10 @@ v250903b
 
 ---
 
-## Backlog
+## In-Progress
 
 ### M-01 | 메모리/버스 모델 고도화 v1
-- **요약**: SPM bank 포트 수, DMA burst, DRAM 채널/페이지 정책(오픈/클로즈드) 파라미터화. `IOBufferTracker`의 FIFO 동작 개선 및 시스템 버스 모델 추가.
+- **요약**: `IOBufferTracker`의 FIFO 동작 개선 및 시스템 버스 모델 추가 완료. SPM bank 포트 수, DMA burst, DRAM 채널/페이지 정책 파라미터화 작업 필요.
 - **수용기준**: bank 충돌 케이스 재현 테스트 3종, burst size 변화에 따른 P95 변동 리포트, FIFO 모델 검증 테스트 추가.
 - **우선순위**: P1 / **사이즈**: L / **의존성**: — / **태그**: 메모리, DMA, 버스
 

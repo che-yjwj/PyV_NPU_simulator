@@ -1,3 +1,8 @@
+V250905a - 메모리 모델 개선 (feature/m-01-memory-model-enhancement):
+  - `IOBufferTracker`를 실제 FIFO 동작에 맞게 리팩토링하고, 관련 테스트 코드를 수정하여 안정성을 검증.
+  - 시스템 버스 경합을 모델링하는 `SystemBusTracker`를 추가하고, 스케줄러에 연동하여 DRAM 접근 시 버스 지연을 고려하도록 수정.
+  - `README.md`, `code_review.md`, `kanban_board.md` 등 관련 문서를 최신 코드 상태에 맞게 업데이트.
+
 V250903b - 스케줄러 리팩토링 완료 (feature/ref-02-scheduler-refactoring):
   - `run_scheduler_pass`의 복잡도를 낮추기 위해, 최적의 다음 연산을 찾는 로직을 `_find_best_candidate_op` 헬퍼 함수로 분리.
   - 리팩토링 후 `pytest`를 실행하여 전체 테스트(246개)가 통과하는 것을 확인, 코드 안정성을 검증.
