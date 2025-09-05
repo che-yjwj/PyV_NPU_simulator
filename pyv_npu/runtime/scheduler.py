@@ -268,8 +268,8 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
         # Probe system bus, starting from when the DRAM is available
         bus_start, bus_duration, bus_stall = system_bus.probe_transfer(dram_start, num_bytes)
 
-        actual_start = bus_start
-        total_duration = bus_duration # Assume bus is the final bottleneck for simplicity
+        actual_start = dram_start
+        total_duration = (bus_start - dram_start) + bus_duration
         stall_reason = bus_stall if bus_stall != "NONE" else dram_stall
 
         booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': dram_start, 'duration': dram_duration})
@@ -291,11 +291,8 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
         # Probe DRAM banks first
         dram_start, dram_duration, dram_stall, ch_id, b_id = dram_banks.probe_transfer(start_cycle, op.outputs[0].address, num_bytes)
 
-        # Probe system bus
-        bus_start, bus_duration, bus_stall = system_bus.probe_transfer(dram_start, num_bytes)
-
-        actual_start = bus_start
-        total_duration = bus_duration
+        actual_start = dram_start
+        total_duration = (bus_start - dram_start) + bus_duration
         stall_reason = bus_stall if bus_stall != "NONE" else dram_stall
 
         booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': dram_start, 'duration': dram_duration})

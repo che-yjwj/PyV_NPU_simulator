@@ -22,7 +22,7 @@ class SystemBusTracker:
     def get_transfer_cycles(self, num_bytes: int) -> int:
         """Calculates the number of cycles required to transfer data over the bus."""
         if self.bw_gbps == 0: return 0
-        seconds = num_bytes / (self.bw_gbps * 1e9)
+        seconds = (num_bytes * 8) / (self.bw_gbps * 1e9)
         return self.config.cycles(seconds)
 
     def probe_transfer(self, start_cycle: int, num_bytes: int) -> Tuple[int, int, str]:
@@ -42,4 +42,3 @@ class SystemBusTracker:
         """Commits the transfer to the bus timeline."""
         end_cycle = start_cycle + duration
         self.timeline.append((end_cycle, num_bytes))
-        self.timeline.sort() # Keep timeline sorted by end_cycle
