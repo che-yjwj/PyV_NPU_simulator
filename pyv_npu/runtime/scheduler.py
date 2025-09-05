@@ -6,6 +6,7 @@ from ..config import SimConfig
 from ..isa.npu_ir import Program, NPUOp, Tensor, DTYPE_MAP
 from ..isa.opcode import Opcode
 from .resources import BankTracker, DramBankTracker, IssueQueueTracker, L0SPMTracker, IOBufferTracker
+from .bus import SystemBusTracker
 from .te import calculate_systolic_array_cycles
 
 
@@ -17,6 +18,7 @@ class BookingInfo:
     l0_spm_loads: List[Dict[str, Any]] = field(default_factory=list)
     io_buffer_pops: List[Dict[str, Any]] = field(default_factory=list)
     io_buffer_pushes: List[Dict[str, Any]] = field(default_factory=list)
+    system_bus_transfers: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -45,6 +47,7 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
     # --- Resource Trackers ---
     dram_bank_tracker = DramBankTracker(config)
     spm_banks = BankTracker(config)
+    system_bus = SystemBusTracker(config)
     issue_queue = IssueQueueTracker(config)
     l0_spm_trackers = [L0SPMTracker(config) for _ in range(config.tc)]
     io_buffer = IOBufferTracker(config, name="io_buffer")
@@ -97,7 +100,7 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
                 time=time, config=config, schedule=schedule, event_queue=event_queue,
                 tensor_ready_time=tensor_ready_time, completed_tickets=completed_tickets,
                 engine_pools={'TC': tc_free_time, 'VC': vc_free_time, 'DMA': dma_free_time, 'CPU': cpu_free_time},
-                resource_trackers={'dram_banks': dram_bank_tracker, 'spm_banks': spm_banks, 'issue_queue': issue_queue, 'l0_spms': l0_spm_trackers, 'io_buffer': io_buffer},
+                resource_trackers={'dram_banks': dram_bank_tracker, 'spm_banks': spm_banks, 'issue_queue': issue_queue, 'l0_spms': l0_spm_trackers, 'io_buffer': io_buffer, 'system_bus': system_bus},
                 op_pending_time=op_pending_time
             )
 
@@ -187,6 +190,7 @@ def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, eve
     dram_banks = resource_trackers['dram_banks']
     spm = resource_trackers['spm_banks']
     issue_queue = resource_trackers['issue_queue']
+    system_bus = resource_trackers['system_bus']
     io_buffer = resource_trackers['io_buffer']
 
     if best_op_details['stall_breakdown'].get("RESOURCE_DRAM_BANK"):
@@ -197,8 +201,10 @@ def run_scheduler_pass(cpu_op_queue, npu_work_queue, time, config, schedule, eve
         spm.commit_slot(**booking)
     for booking in booking_info.issue_slots:
         issue_queue.commit_issue(**booking)
-    for pop_info in booking_info.io_buffer_pops:
-        io_buffer.pop(**pop_info)
+    for booking in booking_info.system_bus_transfers:
+        system_bus.commit_transfer(**booking)
+    for _ in booking_info.io_buffer_pops:
+        io_buffer.pop()
     for push_info in booking_info.io_buffer_pushes:
         io_buffer.push(**push_info)
     
@@ -244,7 +250,7 @@ def _calculate_control_op_timing(op: NPUOp, start_cycle: int, config: SimConfig,
 
 
 def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
-    dram_banks, io_buffer = resources['dram_banks'], resources['io_buffer']
+    dram_banks, io_buffer, system_bus = resources['dram_banks'], resources['io_buffer'], resources['system_bus']
     booking_info = BookingInfo()
     breakdown = {}
 
@@ -256,21 +262,44 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
         if not io_buffer.can_push(num_bytes):
             return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_FULL", breakdown, booking_info
         
-        actual_start, duration, stall_reason, ch_id, b_id = dram_banks.probe_transfer(start_cycle, op.inputs[0].address, num_bytes)
-        booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': actual_start, 'duration': duration})
+        # Probe DRAM banks first
+        dram_start, dram_duration, dram_stall, ch_id, b_id = dram_banks.probe_transfer(start_cycle, op.inputs[0].address, num_bytes)
+        
+        # Probe system bus, starting from when the DRAM is available
+        bus_start, bus_duration, bus_stall = system_bus.probe_transfer(dram_start, num_bytes)
+
+        actual_start = dram_start
+        total_duration = (bus_start - dram_start) + bus_duration
+        stall_reason = bus_stall if bus_stall != "NONE" else dram_stall
+
+        booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': dram_start, 'duration': dram_duration})
+        booking_info.system_bus_transfers.append({'start_cycle': bus_start, 'duration': bus_duration, 'num_bytes': num_bytes})
         booking_info.io_buffer_pushes.append({'num_bytes': num_bytes, 'tensor_name': tensor.name})
-        return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
+        # TODO: Add bus booking info
+        return actual_start, actual_start + total_duration, stall_reason, breakdown, booking_info
 
     if op.opcode == Opcode.STORE:
         tensor = op.inputs[0]
-        if not io_buffer.can_pop_tensor(tensor.name):
+        # Check if the required tensor is at the head of the FIFO.
+        next_item = io_buffer.peek()
+        if not next_item or next_item[1] != tensor.name:
             return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
         
-        num_bytes = tensor.num_elements * DTYPE_MAP.get(tensor.dtype, 1)
-        actual_start, duration, stall_reason, ch_id, b_id = dram_banks.probe_transfer(start_cycle, op.outputs[0].address, num_bytes)
-        booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': actual_start, 'duration': duration})
-        booking_info.io_buffer_pops.append({'num_bytes': num_bytes, 'tensor_name': tensor.name})
-        return actual_start, actual_start + duration, stall_reason, breakdown, booking_info
+        num_bytes = next_item[0]
+        booking_info.io_buffer_pops.append({})
+
+        # Probe DRAM banks first
+        dram_start, dram_duration, dram_stall, ch_id, b_id = dram_banks.probe_transfer(start_cycle, op.outputs[0].address, num_bytes)
+
+        actual_start = dram_start
+        total_duration = (bus_start - dram_start) + bus_duration
+        stall_reason = bus_stall if bus_stall != "NONE" else dram_stall
+
+        booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': dram_start, 'duration': dram_duration})
+        booking_info.system_bus_transfers.append({'start_cycle': bus_start, 'duration': bus_duration, 'num_bytes': num_bytes})
+        booking_info.io_buffer_pops.append({})
+        # TODO: Add bus booking info
+        return actual_start, actual_start + total_duration, stall_reason, breakdown, booking_info
 
 
 def _calculate_tc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], engine_idx: int, **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
@@ -278,12 +307,17 @@ def _calculate_tc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, reso
     booking_info = BookingInfo()
     breakdown = {}
 
-    if not all(io_buffer.can_pop_tensor(t.name) for t in op.inputs):
+    # Check if all required tensors are at the head of the FIFO in the correct order.
+    if len(io_buffer.queue) < len(op.inputs):
         return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
     
+    for i, t in enumerate(op.inputs):
+        if io_buffer.queue[i][1] != t.name:
+            # Return a new stall reason for mismatch
+            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_MISMATCH", breakdown, booking_info
+    
     for t in op.inputs:
-        num_bytes = t.num_elements * DTYPE_MAP.get(t.dtype, 1)
-        booking_info.io_buffer_pops.append({'num_bytes': num_bytes, 'tensor_name': t.name})
+        booking_info.io_buffer_pops.append({})
 
     l0_spm = l0_spms[engine_idx]
     is_hit = l0_spm.probe_hit(op.inputs)
@@ -327,12 +361,17 @@ def _calculate_vc_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, reso
     booking_info = BookingInfo()
     breakdown = {}
 
-    if not all(io_buffer.can_pop_tensor(t.name) for t in op.inputs):
+    # Check if all required tensors are at the head of the FIFO in the correct order.
+    if len(io_buffer.queue) < len(op.inputs):
         return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
     
+    for i, t in enumerate(op.inputs):
+        if io_buffer.queue[i][1] != t.name:
+            # Return a new stall reason for mismatch
+            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_MISMATCH", breakdown, booking_info
+    
     for t in op.inputs:
-        num_bytes = t.num_elements * DTYPE_MAP.get(t.dtype, 1)
-        booking_info.io_buffer_pops.append({'num_bytes': num_bytes, 'tensor_name': t.name})
+        booking_info.io_buffer_pops.append({})
 
     num_elements = op.args.get('num_elements', 2048)
     compute_cycles = max(5, num_elements // 16)

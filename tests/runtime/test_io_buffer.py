@@ -5,7 +5,6 @@ from pyv_npu.runtime.resources import IOBufferTracker
 @pytest.fixture
 def buffer_config():
     """Provides a default SimConfig for the IO buffer tests."""
-    # Set a small buffer size for easier testing of capacity limits
     return SimConfig(io_buffer_size_kb=1) # 1 KB buffer
 
 @pytest.fixture
@@ -48,47 +47,48 @@ def test_can_push(io_buffer):
     assert io_buffer.can_push(512)
     assert not io_buffer.can_push(513)
 
-def test_can_pop_tensor(io_buffer):
-    """Tests the can_pop_tensor method."""
-    assert not io_buffer.can_pop_tensor("tensor_a")
+def test_pop_fifo_order(io_buffer):
+    """Tests that pop returns items in FIFO order."""
     io_buffer.push(100, "tensor_a")
-    assert io_buffer.can_pop_tensor("tensor_a")
-    assert not io_buffer.can_pop_tensor("tensor_b")
     io_buffer.push(200, "tensor_b")
-    assert io_buffer.can_pop_tensor("tensor_b")
 
-def test_pop_simple(io_buffer):
-    """Tests a single pop operation."""
-    io_buffer.push(100, "tensor_a")
-    io_buffer.pop(100, "tensor_a")
+    item1 = io_buffer.pop()
+    assert item1 == (100, "tensor_a")
+    assert io_buffer.current_fill_bytes == 200
+    assert len(io_buffer.queue) == 1
+
+    item2 = io_buffer.pop()
+    assert item2 == (200, "tensor_b")
     assert io_buffer.current_fill_bytes == 0
     assert len(io_buffer.queue) == 0
-    assert not io_buffer.can_pop_tensor("tensor_a")
 
-def test_pop_out_of_order(io_buffer):
-    """Tests that the correct tensor is popped even if it's not at the front."""
+def test_pop_from_empty_buffer(io_buffer):
+    """Tests that popping from an empty buffer raises a ValueError."""
+    with pytest.raises(ValueError, match="Buffer underflow"):
+        io_buffer.pop()
+
+def test_peek(io_buffer):
+    """Tests that peek returns the next item without removing it."""
+    assert io_buffer.peek() is None
     io_buffer.push(100, "tensor_a")
     io_buffer.push(200, "tensor_b")
-    io_buffer.push(300, "tensor_c")
 
-    # Pop the middle element
-    io_buffer.pop(200, "tensor_b")
-    assert io_buffer.current_fill_bytes == 400 # 100 + 300
+    peeked_item = io_buffer.peek()
+    assert peeked_item == (100, "tensor_a")
+    # Verify that the buffer state is unchanged
+    assert io_buffer.current_fill_bytes == 300
     assert len(io_buffer.queue) == 2
-    assert not io_buffer.can_pop_tensor("tensor_b")
-    assert io_buffer.can_pop_tensor("tensor_a")
-    assert io_buffer.can_pop_tensor("tensor_c")
-    assert io_buffer.queue[0] == (100, "tensor_a")
-    assert io_buffer.queue[1] == (300, "tensor_c")
 
-def test_pop_non_existent(io_buffer):
-    """Tests that popping a non-existent tensor raises a ValueError."""
-    io_buffer.push(100, "tensor_a")
-    with pytest.raises(ValueError, match="not in buffer for popping"):
-        io_buffer.pop(100, "tensor_b")
+    io_buffer.pop()
+    peeked_item_after_pop = io_buffer.peek()
+    assert peeked_item_after_pop == (200, "tensor_b")
 
-def test_pop_size_mismatch(io_buffer):
-    """Tests that popping a tensor with an incorrect size raises a ValueError."""
+def test_can_pop(io_buffer):
+    """Tests the can_pop method."""
+    assert not io_buffer.can_pop()
     io_buffer.push(100, "tensor_a")
-    with pytest.raises(ValueError, match=r"\[test_buffer\] Size mismatch for tensor tensor_a\. Expected 100, got 99\."):
-        io_buffer.pop(99, "tensor_a")
+    assert io_buffer.can_pop()
+    assert io_buffer.can_pop(num_bytes=100)
+    assert not io_buffer.can_pop(num_bytes=99)
+    io_buffer.pop()
+    assert not io_buffer.can_pop()

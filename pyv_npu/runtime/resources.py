@@ -27,29 +27,28 @@ class IOBufferTracker:
         self.current_fill_bytes += num_bytes
         self.queue.append((num_bytes, tensor_name))
 
-    def can_pop_tensor(self, tensor_name: str) -> bool:
-        """Check if a specific tensor is available in the buffer."""
-        return any(name == tensor_name for _, name in self.queue)
+    def can_pop(self, num_bytes: int | None = None) -> bool:
+        """Check if the buffer is not empty and optionally if the next item has the expected size."""
+        if not self.queue:
+            return False
+        if num_bytes is not None:
+            return self.queue[0][0] == num_bytes
+        return True
 
-    def pop(self, num_bytes: int, tensor_name: str):
-        """Pop a specific tensor's data from the buffer.
-        Note: This is O(N) and not a strict FIFO pop.
-        """
-        if not self.can_pop_tensor(tensor_name):
-            raise ValueError(f"[{self.name}] Tensor {tensor_name} not in buffer for popping.")
+    def pop(self) -> tuple[int, str]:
+        """Pop the next tensor from the buffer in FIFO order."""
+        if not self.queue:
+            raise ValueError(f"[{self.name}] Buffer underflow! Cannot pop from an empty buffer.")
+        
+        num_bytes, tensor_name = self.queue.popleft()
+        self.current_fill_bytes -= num_bytes
+        return num_bytes, tensor_name
 
-        # Find the tensor in the deque and remove it.
-        for i, (size, name) in enumerate(self.queue):
-            if name == tensor_name:
-                # Validate that the size provided by the scheduler matches the stored size.
-                if num_bytes != size:
-                    raise ValueError(f"[{self.name}] Size mismatch for tensor {tensor_name}. Expected {size}, got {num_bytes}.")
-                self.current_fill_bytes -= size
-                del self.queue[i]
-                return
-
-        # This should not be reached if can_pop_tensor is called first.
-        raise ValueError(f"[{self.name}] Inconsistency: Tensor {tensor_name} found by can_pop_tensor but not in pop.")
+    def peek(self) -> tuple[int, str] | None:
+        """Peek at the next item in the buffer without removing it."""
+        if not self.queue:
+            return None
+        return self.queue[0]
 
 
 class L0SPMTracker:
