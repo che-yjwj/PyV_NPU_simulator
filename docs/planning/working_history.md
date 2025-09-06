@@ -1,3 +1,19 @@
+V250906a - Py-V L1 캐시 구현 완료 (feature/arc-02-l1-cache-impl):
+  - **목표**: Py-V RISC-V 코어에 L1 캐시를 구현하여 시뮬레이션의 타이밍 정확도를 높임.
+  - **1단계 (기반 구현)**:
+    - `cache_config.py`: 캐시의 동작(크기, 라인 사이즈, 레이턴시 등)을 정의하는 `CacheConfig` 클래스 추가.
+    - `cache.py`: 주소 변환, Hit/Miss 판정, LRU 교체 정책, Write-Back 정책을 포함한 `L1Cache` 핵심 로직 구현.
+    - `test_cache.py`: `L1Cache`의 핵심 기능을 검증하는 단위 테스트 작성 및 통과.
+  - **2단계 (CPU 통합 및 타이밍 모델링)**:
+    - `mem.py`: 캐시가 블록 단위로 하위 메모리에 접근할 수 있도록 `read_block`, `write_block` 메서드 추가.
+    - `memory_system.py`: 캐시와 메인 메모리를 통합 관리하고, CPU에 기존과 동일한 메모리 포트 인터페이스를 제공하는 `MemorySystem` 모듈 구현.
+    - `MemorySystem`에 캐시 Hit/Miss를 판별하고, 미스 발생 시 CPU 파이프라인을 멈추게 하는 `stall` 신호를 생성하는 상태 머신 및 타이밍 로직 구현.
+    - `reg.py`, `stages.py`, `singlecycle.py`: `stall` 신호를 CPU 파이프라인(`IFStage`)에 연결하여 캐시 미스 시 실제로 파이프라인이 멈추도록 수정.
+  - **3단계 (검증 및 고도화)**:
+    - `test_integration_cache.py`: 캐시와 Stall 로직이 통합된 전체 시뮬레이터의 타이밍 동작이 올바른지 검증하는 통합 테스트 작성 및 통과.
+    - `MemorySystem` 리팩토링: 현실적인 CPU 구조를 반영하여 명령어 캐시(I-Cache)와 데이터 캐시(D-Cache)를 분리.
+    - `py-v/README.md`: L1 캐시 기능 추가 및 위시리스트 항목 업데이트.
+
 V250905a - 메모리 모델 개선 (feature/m-01-memory-model-enhancement):
   - `IOBufferTracker`를 실제 FIFO 동작에 맞게 리팩토링하고, 관련 테스트 코드를 수정하여 안정성을 검증.
   - 시스템 버스 경합을 모델링하는 `SystemBusTracker`를 추가하고, 스케줄러에 연동하여 DRAM 접근 시 버스 지연을 고려하도록 수정.
@@ -236,7 +252,6 @@ V250812b
   정리하자면, 프로젝트는 ONNX 모델을 입력받아 NPU-IR로 변환하고, 정의된 Custom ISA를 바탕으로 L2 수준의 이벤트 기반 
   시뮬레이션을 실행하기 위한 핵심 골격을 구축한 단계에 있습니다. 다음 단계는 스케줄러와 시뮬레이터에 실제적인 경합 및 자원
   모델을 구현하고(M2 완료), py-v와의 연동(M4)을 진행하는 것이 될 것으로 보입니다.
-
 V250812a
   기능 구현 현황 분석 
 
