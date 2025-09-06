@@ -73,6 +73,7 @@ class IFStage(Module):
 
     Inputs:
         npc_i: Next program counter (PC).
+        en_i: Stage enable signal.
 
     Outputs:
         IFID_o: Interface to IDStage.
@@ -82,13 +83,15 @@ class IFStage(Module):
         super().__init__()
         # Next PC
         self.npc_i = Input(int)
+        self.en_i = Input(bool)
+        self.en_i.write(True) # Default to enabled
         self.IFID_o = Output(IFID_t)
 
         # Program counter (PC)
-        self.pc_reg = Reg(int, -4)
+        self.pc_reg = Reg(int, -4, en_i=self.en_i)
 
         # Instruction register (IR)
-        self.ir_reg = Reg(int, 0x00000013)
+        self.ir_reg = Reg(int, 0x00000013, en_i=self.en_i)
 
         # Helper wires
         self.pc_reg_w = Wire(int, [self.write_output])

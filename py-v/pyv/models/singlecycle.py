@@ -2,11 +2,22 @@ from pyv.csr import CSRUnit
 from pyv.exception_unit import ExceptionUnit
 from pyv.stages import EXMEM_t, IFID_t, IFStage, IDStage, EXStage, MEMStage, \
     WBStage, BranchUnit
-from pyv.mem import Memory
+from pyv.memory_system import MemorySystem
 from pyv.reg import Regfile
 from pyv.module import Module
 from pyv.models.model import Model
-from pyv.port import Wire
+from pyv.port import Wire, Input, Output
+
+class Inverter(Module):
+    """Simple logic inverter."""
+    def __init__(self):
+        super().__init__()
+        self.in_i = Input(bool, [self.process])
+        self.out_o = Output(bool)
+
+    def process(self):
+        self.out_o.write(not self.in_i.read())
+
 
 
 class SingleCycle(Module):
@@ -22,7 +33,7 @@ class SingleCycle(Module):
         self.csr_unit = CSRUnit()
         """RISC-V CSRs"""
 
-        self.mem = Memory(8 * 1024)
+        self.mem = MemorySystem(8 * 1024)
         """Main Memory (for both instructions and data)"""
 
         self.if_stg = IFStage(self.mem.read_port1)
@@ -40,6 +51,8 @@ class SingleCycle(Module):
         """Branch unit"""
         self.excep = ExceptionUnit(self.csr_unit)
         """Exception unit"""
+        self.stall_inverter = Inverter()
+        """Inverts stall signal for enable"""
 
         # Wires
         self.IFID = Wire(IFID_t, sensitive_methods=[self.connects])
@@ -72,6 +85,10 @@ class SingleCycle(Module):
         self.csr_unit.ex_i          << self.excep.raise_exception_o
         self.csr_unit.mepc_i        << self.excep.mepc_o
         self.csr_unit.mcause_i      << self.excep.mcause_o
+
+        # Connect Stall logic
+        self.stall_inverter.in_i << self.mem.stall_o
+        self.if_stg.en_i << self.stall_inverter.out_o
 
         # Connect WBStage to CSR unit
         self.csr_unit.write_en_i    << self.wb_stg.csr_write_en_o
@@ -111,7 +128,7 @@ class SingleCycleModel(Model):
         Args:
             instructions (list): List of instruction words.
         """
-        self.core.mem.mem[:len(instructions)] = instructions
+        self.core.mem.load_instructions(instructions)
 
     def load_binary(self, file):
         """Load a program binary into the instruction memory.
@@ -155,7 +172,7 @@ class SingleCycleModel(Model):
         Returns:
             list: List of bytes.
         """
-        return [hex(self.core.mem.mem[addr + i]) for i in range(0, nbytes)]
+        return [hex(self.core.mem.main_memory.mem[addr + i]) for i in range(0, nbytes)]
 
     def readInstMem(self, addr, nbytes):
         """Read bytes from instruction memory.
@@ -167,4 +184,4 @@ class SingleCycleModel(Model):
         Returns:
             list: List of bytes.
         """
-        return [hex(self.core.mem.mem[addr + i]) for i in range(0, nbytes)]
+        return [hex(self.core.mem.main_memory.mem[addr + i]) for i in range(0, nbytes)]
