@@ -407,7 +407,7 @@ class EXStage(Module):
     def __init__(self):
         super().__init__()
         self.IDEX_i = Input(
-            IDEX_t, sensitive_methods=[self.process, self.pass_through])
+            IDEX_t, sensitive_methods=[self.process])
 
         self.register_stable_callbacks([self.check_exception])
 
@@ -431,20 +431,6 @@ class EXStage(Module):
             self.exmem_val.csr_write_val
         ))
 
-    def pass_through(self):
-        val = self.IDEX_i.read()
-        self.exmem_val.rd = val.rd
-        self.exmem_val.we = val.we
-        self.exmem_val.wb_sel = val.wb_sel
-        self.exmem_val.rs2 = val.rs2
-        self.exmem_val.mem = val.mem
-        self.exmem_val.funct3 = val.funct3
-        self.exmem_val.csr_addr = val.csr_addr
-        self.exmem_val.csr_write_en = val.csr_write_en
-        self.exmem_val.csr_read_val = val.csr_read_val
-
-        self.write_output()
-
     def process(self):
         # Read inputs
         val: IDEX_t = self.IDEX_i.read()
@@ -457,6 +443,17 @@ class EXStage(Module):
         f7 = val.funct7
         csr_write_en = val.csr_write_en
         csr_read_val = val.csr_read_val
+
+        # Pass-through values
+        self.exmem_val.rd = val.rd
+        self.exmem_val.we = val.we
+        self.exmem_val.wb_sel = val.wb_sel
+        self.exmem_val.rs2 = val.rs2
+        self.exmem_val.mem = val.mem
+        self.exmem_val.funct3 = val.funct3
+        self.exmem_val.csr_addr = val.csr_addr
+        self.exmem_val.csr_write_en = val.csr_write_en
+        self.exmem_val.csr_read_val = val.csr_read_val
 
         # Check for branch/jump
         take_branch = False

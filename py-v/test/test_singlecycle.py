@@ -13,7 +13,7 @@ def core() -> SingleCycle:
 
 
 def mem_write_word(core: SingleCycle, addr, val):
-    mem = core.mem.mem
+    mem = core.mem.main_memory.mem
     for i in range(4):
         mem[addr + i] = 0xff & val
         val >>= 8
@@ -29,7 +29,7 @@ class TestCSR:
         core.regf.regs[12] = 0xdeadbeef
         mem_write_word(core, 0, inst)
         mem_write_word(core, 4, nop)
-        sim.run(2, False)
+        sim.run(200, False)
         assert core.regf.regs[5] == 0x4000_0100
         assert core.csr_unit.read(0x301) == 0xdeadbeef
 
@@ -42,7 +42,7 @@ class TestCSR:
         core.regf.regs[12] = 0xdeadbeef
         mem_write_word(core, 0, inst)
         mem_write_word(core, 4, nop)
-        sim.run(2, False)
+        sim.run(200, False)
         assert core.regf.regs[5] != 0x4000_0100
         assert core.csr_unit.read(0x301) == 0xdeadbeef
 
@@ -55,7 +55,7 @@ class TestCSR:
         core.regf.regs[12] = 0xdeadbeef
         mem_write_word(core, 0, inst)
         mem_write_word(core, 4, nop)
-        sim.run(2, False)
+        sim.run(200, False)
         assert core.regf.regs[5] == 0x4000_0100
         assert core.csr_unit.read(0x301) == 0xdeadbfef
 
@@ -68,7 +68,7 @@ class TestCSR:
         core.regf.regs[12] = 0xdeadbeef
         mem_write_word(core, 0, inst)
         mem_write_word(core, 4, nop)
-        sim.run(2, False)
+        sim.run(200, False)
         assert core.regf.regs[5] == 0x4000_0100
         assert core.csr_unit.read(0x301) == 0x100
 
@@ -80,7 +80,7 @@ class TestCSR:
         nop = 0x13
         mem_write_word(core, 0, inst)
         mem_write_word(core, 4, nop)
-        sim.run(2, False)
+        sim.run(200, False)
         assert core.regf.regs[5] == 0x4000_0100
         assert core.csr_unit.read(0x301) == 0x4000_0100
 
@@ -92,7 +92,7 @@ class TestCSR:
         nop = 0x13
         mem_write_word(core, 0, inst)
         mem_write_word(core, 4, nop)
-        sim.run(2, False)
+        sim.run(200, False)
         assert core.regf.regs[5] == 0x4000_0100
         assert core.csr_unit.read(0x301) == 26
 
@@ -104,7 +104,7 @@ class TestCSR:
         nop = 0x13
         mem_write_word(core, 0, inst)
         mem_write_word(core, 4, nop)
-        sim.run(2, False)
+        sim.run(200, False)
         assert core.regf.regs[5] == 0x4000_0100
         assert core.csr_unit.read(0x301) == 0x4000_011A
 
@@ -116,7 +116,7 @@ class TestCSR:
         nop = 0x13
         mem_write_word(core, 0, inst)
         mem_write_word(core, 4, nop)
-        sim.run(2, False)
+        sim.run(200, False)
         assert core.regf.regs[5] == 0x4000_0100
         assert core.csr_unit.read(0x301) == 0x4000_0100
 
@@ -135,7 +135,7 @@ class TestExceptions:
         mem_write_word(core, 0, nop)
         mem_write_word(core, 4, inst)
         mem_write_word(core, 16, nop)
-        sim.run(3, False)
+        sim.run(200, False)
         assert core.csr_unit.read(mepc_addr) == 4
         assert core.csr_unit.read(mcause_addr) == 11
         assert core.pc.read() == mtvec
@@ -151,5 +151,5 @@ class TestExceptions:
         mem_write_word(core, 0, nop)
         mem_write_word(core, 4, inst)
         mem_write_word(core, 16, nop)
-        sim.run(3, False)
+        sim.run(200, False)
         assert core.pc.read() == mepc

@@ -73,7 +73,7 @@ class TestL1Cache(unittest.TestCase):
         # Write to address1, making its line dirty
         self.cache.write(address1, 0xCC)
         tag1, index1, _ = self.cache._decompose_address(address1)
-        line1 = self.cache.sets[index1].find_line(tag1)
+        _, line1 = self.cache.sets[index1].find_line(tag1)
         self.assertTrue(line1.dirty, "Line should be dirty after write")
 
         # Access address2, should not evict address1 yet (2-way associativity)

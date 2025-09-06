@@ -141,7 +141,7 @@ class SingleCycleModel(Model):
         f.close()
         inst = list(ba)
 
-        self.core.mem.mem[:len(inst)] = inst
+        self.core.mem.load_instructions(inst)
 
     def readReg(self, reg):
         """Read a register in the register file.
@@ -172,7 +172,7 @@ class SingleCycleModel(Model):
         Returns:
             list: List of bytes.
         """
-        return [hex(self.core.mem.main_memory.mem[addr + i]) for i in range(0, nbytes)]
+        return [hex(b) for b in self.core.mem.debug_read_mem(addr, nbytes)]
 
     def readInstMem(self, addr, nbytes):
         """Read bytes from instruction memory.
@@ -184,4 +184,8 @@ class SingleCycleModel(Model):
         Returns:
             list: List of bytes.
         """
-        return [hex(self.core.mem.main_memory.mem[addr + i]) for i in range(0, nbytes)]
+        return [hex(b) for b in self.core.mem.debug_read_mem(addr, nbytes)]
+
+    def debug_write_mem(self, addr, val):
+        """Write a value directly to memory for testing."""
+        self.core.mem.main_memory.mem[addr] = val

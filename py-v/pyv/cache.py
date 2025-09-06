@@ -13,33 +13,36 @@ class CacheLine:
 class CacheSet:
     """Represents a set of cache lines, implementing LRU replacement."""
     def __init__(self, associativity: int, line_size_bytes: int):
-        self.lines = OrderedDict()
-        for _ in range(associativity):
-            line = CacheLine(line_size_bytes)
-            self.lines[id(line)] = line # Use id as a unique key for the OrderedDict
+        # Use OrderedDict to maintain LRU order. The first item is the LRU.
+        self.lines = OrderedDict([(i, CacheLine(line_size_bytes)) for i in range(associativity)])
 
-    def find_line(self, tag: int) -> CacheLine | None:
-        for line in self.lines.values():
+    def find_line(self, tag: int) -> tuple[int, CacheLine] | tuple[None, None]:
+        """Finds a line with a given tag. If found, moves it to the end (MRU)."""
+        for key, line in self.lines.items():
             if line.valid and line.tag == tag:
-                # Move the accessed line to the end to mark it as most recently used
-                self.lines.move_to_end(id(line))
-                return line
-        return None
+                self.lines.move_to_end(key)
+                return key, line
+        return None, None
 
-    def get_lru_line(self) -> CacheLine:
+    def get_lru_line(self) -> tuple[int, CacheLine]:
+        """Gets the least recently used line and moves it to the end (making it MRU)."""
         # The first item in the OrderedDict is the least recently used
-        lru_line_id = next(iter(self.lines))
-        lru_line = self.lines[lru_line_id]
-        self.lines.move_to_end(lru_line_id)
-        return lru_line
+        lru_key = next(iter(self.lines))
+        lru_line = self.lines[lru_key]
+        self.lines.move_to_end(lru_key)
+        return lru_key, lru_line
 
 class L1Cache:
-    """A configurable L1 Cache with LRU replacement and Write-Back policy."""
-    def __init__(self, config: CacheConfig, lower_memory):
+    """
+    A configurable L1 Cache.
+    This class is responsible for cache logic (hit/miss, LRU) but not for timing.
+    The MemorySystem is responsible for handling the timing of miss penalties.
+    """
+    def __init__(self, config: CacheConfig, memory):
         self.config = config
-        self.lower_memory = lower_memory # Next level of memory (e.g., L2 cache or main memory)
+        self.memory = memory
         self.sets = [CacheSet(config.associativity, config.line_size_bytes) for _ in range(config.num_sets)]
-        
+
         # Calculate bit shifts and masks for address decomposition
         self.offset_bits = self.config.line_size_bytes.bit_length() - 1
         self.index_bits = self.config.num_sets.bit_length() - 1
@@ -53,64 +56,99 @@ class L1Cache:
         tag = address >> (self.offset_bits + self.index_bits)
         return tag, index, offset
 
-    def read(self, address: int) -> tuple[bytearray, bool]:
-        """Read data from the cache. Returns (data, hit)."""
-        tag, index, offset = self._decompose_address(address)
-        cache_set = self.sets[index]
-        line = cache_set.find_line(tag)
+    def read(self, address: int) -> tuple[int, bool]:
+        """
+        Reads a byte from the cache. Handles misses and write-backs.
+        Returns (value, hit_status).
+        """
+        hit, line, tag, index, offset = self.probe(address)
 
-        if line:
-            # Cache Hit
-            return line.data[offset], True
-        else:
-            # Cache Miss
-            self._handle_miss(address, index)
-            # After miss handling, the line is in the cache, so we read again.
-            line = cache_set.find_line(tag)
-            return line.data[offset], False
+        if hit:
+            return self.read_from_line(line, offset), True
 
-    def write(self, address: int, value: int):
-        """Write data to the cache."""
-        tag, index, offset = self._decompose_address(address)
-        cache_set = self.sets[index]
-        line = cache_set.find_line(tag)
+        # Handle Miss
+        victim_line = self.get_victim_line(index)
 
-        if line:
-            # Cache Hit
-            line.data[offset] = value
-            if self.config.write_policy == "Write-Back":
-                line.dirty = True
-            # In a Write-Through policy, we would write to lower_memory here.
-        else:
-            # Cache Miss
-            self._handle_miss(address, index)
-            line = cache_set.find_line(tag)
-            line.data[offset] = value
-            if self.config.write_policy == "Write-Back":
-                line.dirty = True
-
-    def _handle_miss(self, address: int, index: int):
-        """Handles a cache miss by fetching data from lower memory."""
-        cache_set = self.sets[index]
-        victim_line = cache_set.get_lru_line()
-
+        # Write-back if victim is dirty
         if victim_line.valid and victim_line.dirty:
-            # Write-Back the victim line to lower memory
-            old_address = self._reconstruct_address(victim_line.tag, index)
-            self.lower_memory.write_block(old_address, victim_line.data)
+            victim_address = self.reconstruct_address(victim_line.tag, index)
+            self.memory.write_block(victim_address, victim_line.data)
 
-        # Fetch the new block from lower memory
+        # Fetch new block from memory
         block_start_address = address & ~self.offset_mask
-        new_data = self.lower_memory.read_block(block_start_address, self.config.line_size_bytes)
-        
-        # Update the victim line with the new data
-        new_tag, _, _ = self._decompose_address(address)
-        victim_line.valid = True
-        victim_line.dirty = False
-        victim_line.tag = new_tag
-        victim_line.data[:] = new_data
+        new_data = self.memory.read_block(block_start_address, self.config.line_size_bytes)
 
-    def _reconstruct_address(self, tag: int, index: int) -> int:
+        # Fill the cache line
+        self.fill_line(victim_line, tag, new_data)
+
+        return self.read_from_line(victim_line, offset), False
+
+    def write(self, address: int, value: int) -> bool:
+        """
+        Writes a byte to the cache. Handles misses (write-allocate) and write-backs.
+        Returns hit_status.
+        """
+        hit, line, tag, index, offset = self.probe(address)
+
+        if hit:
+            self.write_to_line(line, offset, value)
+            return True
+
+        # Handle Miss (Write-Allocate)
+        victim_line = self.get_victim_line(index)
+
+        # Write-back if victim is dirty
+        if victim_line.valid and victim_line.dirty:
+            victim_address = self.reconstruct_address(victim_line.tag, index)
+            self.memory.write_block(victim_address, victim_line.data)
+
+        # Fetch new block from memory
+        block_start_address = address & ~self.offset_mask
+        new_data = self.memory.read_block(block_start_address, self.config.line_size_bytes)
+
+        # Fill the cache line
+        self.fill_line(victim_line, tag, new_data)
+
+        # Perform the write on the new line
+        self.write_to_line(victim_line, offset, value)
+
+        return False
+
+    def probe(self, address: int) -> tuple[bool, CacheLine | None, int, int, int]:
+        """
+        Probes the cache for a given address.
+        Returns (hit, line, tag, index, offset).
+        """
+        tag, index, offset = self._decompose_address(address)
+        cache_set = self.sets[index]
+        _, line = cache_set.find_line(tag)
+        hit = line is not None
+        return hit, line, tag, index, offset
+
+    def read_from_line(self, line: CacheLine, offset: int) -> int:
+        """Reads a byte from a given cache line at a specific offset."""
+        return line.data[offset]
+
+    def write_to_line(self, line: CacheLine, offset: int, value: int):
+        """Writes a byte to a given cache line at a specific offset."""
+        line.data[offset] = value
+        if self.config.write_policy == "Write-Back":
+            line.dirty = True
+
+    def get_victim_line(self, index: int) -> CacheLine:
+        """Gets the victim line for a given set index using LRU policy."""
+        cache_set = self.sets[index]
+        _, victim_line = cache_set.get_lru_line()
+        return victim_line
+
+    def fill_line(self, line: CacheLine, tag: int, block_data: bytearray):
+        """Fills a cache line with new data from memory."""
+        line.valid = True
+        line.dirty = False
+        line.tag = tag
+        line.data[:] = block_data
+
+    def reconstruct_address(self, tag: int, index: int) -> int:
         """Reconstructs the block start address from tag and index."""
         return (tag << (self.index_bits + self.offset_bits)) | (index << self.offset_bits)
 

@@ -57,16 +57,13 @@ class Reg(PyVObj, Clocked, Generic[T]):
         if self.rst.read() == 1:
             self._do_reset = True
         elif self.rst.read() == 0:
-            if self.cur.read() != self.next.read():
+            if self.en_i.read() and self.cur.read() != self.next.read():
                 self._nextv = copy.deepcopy(self.next.read())
                 self._do_tick = True
         else:
             raise Exception("Error: Invalid rst signal!")
 
     def _tick(self):
-        if not self.en_i.read():
-            return
-
         if self._do_reset:
             logger.debug(f"Sync reset on register {self.name}. Reset value: {self._reset_val}.")  # noqa: E501
             self._reset()
