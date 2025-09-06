@@ -11,7 +11,7 @@ T = TypeVar('T')
 class Reg(PyVObj, Clocked, Generic[T]):
     """Represents a register."""
 
-    def __init__(self, type: Type[T], resetVal: T = 0, sensitive_methods=[]):
+    def __init__(self, type: Type[T], resetVal: T = 0, sensitive_methods=[], en_i: Input[bool] = None):
         """Create a new register.
 
         Args:
@@ -19,6 +19,7 @@ class Reg(PyVObj, Clocked, Generic[T]):
             sensitive_methods (list, optional): List of methods to trigger when
                 this register's output (current) value changes. By default, no
                 sensitive methods will be assigned.
+            en_i (Input[bool], optional): Register enable signal. Defaults to None.
         """
         super().__init__(name='UnnamedRegister')
 
@@ -31,6 +32,11 @@ class Reg(PyVObj, Clocked, Generic[T]):
         """Current value output"""
         self.rst: Input = Input(int, [None])
         """Synchronous Reset in (active high)"""
+        if en_i:
+            self.en_i = en_i
+        else:
+            self.en_i = Input(bool)
+            self.en_i.write(True)
 
         self._nextv = 0
         self._reset_val = resetVal
@@ -58,6 +64,9 @@ class Reg(PyVObj, Clocked, Generic[T]):
             raise Exception("Error: Invalid rst signal!")
 
     def _tick(self):
+        if not self.en_i.read():
+            return
+
         if self._do_reset:
             logger.debug(f"Sync reset on register {self.name}. Reset value: {self._reset_val}.")  # noqa: E501
             self._reset()

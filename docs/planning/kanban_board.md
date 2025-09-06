@@ -1,13 +1,13 @@
-v250903b
+v250906a
 # PyV-NPU Simulator 개선 과제 칸반보드(chatgpt)
 
 ## 다음 작업 우선순위 (Top 5 Next Tasks)
 
 1.  **(Backlog / P1)** **TST-01 | 테스트 커버리지 확대**: `mapper.py`와 다양한 `SimConfig` 조합에 대한 테스트를 추가하여 신뢰도를 높입니다. (Effort: Medium)
 2.  **(Backlog / P1)** **M-01 | 메모리/버스 모델 고도화 v1**: `IOBufferTracker`의 FIFO 동작을 개선하고, 시스템 버스 모델을 추가하여 시뮬레이션 정확도를 높입니다. (Effort: Large)
-3.  **(Backlog / P1)** **ARC-02 | Py-V L1 캐시 구현**: `Py-V` RISC-V 코어에 L1 캐시를 추가하여 CPU 모델의 현실성을 높입니다. (Effort: Medium)
-4.  **(Backlog / P1)** **ARC-01 | L2 캐시 모델 구현**: NPU 클러스터에 하드웨어 관리형 L2 캐시 모델을 구현합니다. (Effort: Large)
-5.  **(Backlog / P1)** **C-02 | VC 코스트 모델 v1**: RVV 유사 제약(벡터 길이/issue rate) 반영한 element-wise/Reduce 코스트 모델 (Effort: Medium)
+3.  **(Backlog / P1)** **ARC-01 | L2 캐시 모델 구현**: NPU 클러스터에 하드웨어 관리형 L2 캐시 모델을 구현합니다. (Effort: Large)
+4.  **(Backlog / P1)** **C-02 | VC 코스트 모델 v1**: RVV 유사 제약(벡터 길이/issue rate) 반영한 element-wise/Reduce 코스트 모델 (Effort: Medium)
+5.  **(Backlog / P2)** **P-01 | 컴파일러 타일링 패스 (auto-tile)**: shape/메모리 제약 기반 자동 타일 크기 산출 + mapper에 주입 (Effort: Large)
 
 ---
 
@@ -21,11 +21,6 @@ v250903b
 - **요약**: `IOBufferTracker`의 FIFO 동작 개선 및 시스템 버스 모델 추가 완료. SPM bank 포트 수, DMA burst, DRAM 채널/페이지 정책 파라미터화 작업 필요.
 - **수용기준**: bank 충돌 케이스 재현 테스트 3종, burst size 변화에 따른 P95 변동 리포트, FIFO 모델 검증 테스트 추가.
 - **우선순위**: P1 / **사이즈**: L / **의존성**: — / **태그**: 메모리, DMA, 버스
-
-### ARC-02 | Py-V L1 캐시 구현
-- **요약**: `Py-V` RISC-V 코어에 L1 명령어/데이터 캐시를 추가하여 CPU 모델의 현실성을 높이고, `tight-coupled` 모드의 제어 오버헤드를 정확하게 측정합니다.
-- **수용기준**: Py-V CPU 모델에 L1 캐시 모듈 추가 및 연결. 캐시 히트/미스를 반영한 사이클 수 변동을 검증하는 테스트 추가.
-- **우선순위**: P1 / **사이즈**: M / **의존성**: — / **태그**: 캐시, Py-V, CPU, 아키텍처
 
 ### ARC-01 | L2 캐시 모델 구현
 - **요약**: NPU 클러스터에 하드웨어 관리형 L2 캐시 모델을 구현합니다. 캐시 일관성(Coherence)의 기본 모델을 포함하여 SPM과의 성능 비교 분석 기반을 마련합니다.
@@ -111,6 +106,11 @@ v250903b
 ---
 
 ## Done
+
+### ARC-02 | Py-V L1 캐시 구현
+- **요약**: `Py-V` RISC-V 코어에 L1 명령어/데이터 캐시를 추가하여 CPU 모델의 현실성을 높이고, `tight-coupled` 모드의 제어 오버헤드를 정확하게 측정합니다.
+- **수용기준**: Py-V CPU 모델에 L1 캐시 모듈 추가 및 연결. 캐시 히트/미스를 반영한 사이클 수 변동을 검증하는 테스트 추가.
+- **우선순위**: P1 / **사이즈**: M / **의존성**: — / **태그**: 캐시, Py-V, CPU, 아키텍처
 
 ### REF-02 | 스케줄러 가독성 개선
 - **요약**: `scheduler.py`의 복잡한 함수(`run_scheduler_pass`) 내부 로직을 Opcode별 헬퍼 함수 등으로 분리하여 가독성 및 유지보수성 향상.

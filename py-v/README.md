@@ -29,8 +29,9 @@ Py-V is a cycle-accurate simulator for RISC-V CPUs, written in pure Python. It i
 As of now, there are the following core models:
 
 - Classic 5-stage RISC CPU (`SingleCycle`)
-  - Single-cycle
-  - 8 KiB memory
+  - Single-cycle pipeline with timing simulation.
+  - 8 KiB main memory.
+  - Configurable L1 Cache (Instruction and Data).
 
 ## Running a test program
 
@@ -102,7 +103,7 @@ Unordered (and probably incomplete) list of things I plan to integrate in the (n
 - [ ] Exceptions
   - Partial support implemented
 - [ ] Branch predictor
-- [ ] Caches
+- [x] Caches
 - [ ] ...
 
 ## Designing your own systems

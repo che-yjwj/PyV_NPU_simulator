@@ -175,3 +175,17 @@ class Memory(Module, Clocked):
         """
         for i in range(0, len(self.mem)):
             self.mem[i] = 0
+
+    def read_block(self, address: int, size: int) -> bytearray:
+        """Reads a block of data directly from memory. For cache use."""
+        if address + size > len(self.mem):
+            # Handle out-of-bounds read, maybe return zeroed block
+            return bytearray(size)
+        return bytearray(self.mem[address:address+size])
+
+    def write_block(self, address: int, data: bytearray):
+        """Writes a block of data directly to memory. For cache use."""
+        if address + len(data) > len(self.mem):
+            # Handle out-of-bounds write.
+            return
+        self.mem[address:address+len(data)] = data
