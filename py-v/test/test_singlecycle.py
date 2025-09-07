@@ -22,6 +22,7 @@ def mem_write_word(core: SingleCycle, addr, val):
 class TestCSR:
     def test_csrrw(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         # csrrw x5, misa, x12
         inst = 0x301612f3
@@ -35,6 +36,7 @@ class TestCSR:
 
     def test_csrrw_no_read(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         # csrrw x0, misa, x12
         inst = 0x30161073
@@ -48,6 +50,7 @@ class TestCSR:
 
     def test_csrrs(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         # csrrs x5, misa, x12
         inst = 0x301622f3
@@ -61,6 +64,7 @@ class TestCSR:
 
     def test_csrrc(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         # csrrc x5, misa, x12
         inst = 0x301632f3
@@ -74,6 +78,7 @@ class TestCSR:
 
     def test_csrrs_no_write(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         # csrrs x5, misa, x0
         inst = 0x301022f3
@@ -86,6 +91,7 @@ class TestCSR:
 
     def test_csrrwi(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         # csrrwi x5, misa, 26
         inst = 0x301d52f3
@@ -98,6 +104,7 @@ class TestCSR:
 
     def test_csrrsi(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         # csrrsi x5, misa, 26
         inst = 0x301d62f3
@@ -110,6 +117,7 @@ class TestCSR:
 
     def test_csrrci(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         # csrrci x5, misa, 26
         inst = 0x301d72f3
@@ -124,6 +132,7 @@ class TestCSR:
 class TestExceptions:
     def test_ecall(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         inst = 0x73
         nop = 0x13
@@ -142,6 +151,7 @@ class TestExceptions:
 
     def test_mret(self, sim: Simulator, core: SingleCycle):
         sim.reset()
+        sim.run_comb_logic()
 
         inst = 0x30200073
         nop = 0x13

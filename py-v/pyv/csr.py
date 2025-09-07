@@ -26,7 +26,7 @@ class CSRBlock(Module):
         self._csr_reg.next.write(val)
 
     def output(self):
-        val = self.csr_val_w.read()
+        val = self._csr_reg.cur.read()
         self.csr_val_o.write(val & self._read_mask)
 
 
@@ -57,9 +57,11 @@ class CSRBank(VContainer):
     def read_csr(self, addr):
         csr = self.get_csr(addr)
         if csr:
-            return csr.csr_val_o.read()
+            val = csr._csr_reg.cur.read()
+            logger.info(f"DEBUG: CSRBank.read_csr({addr:03X}): Returning {val:08X}")
+            return val
         else:
-            return 0
+            logger.warning(f"CSR: Attempted to read invalid/unimplemented CSR {addr}.")
 
     def set_write_val(self, addr, val):
         csr = self.get_csr(addr)

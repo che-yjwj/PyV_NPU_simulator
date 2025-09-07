@@ -10,9 +10,9 @@ class ExceptionUnit(Module):
 
         self.csr = csr
 
-        self.pc_i = Input(int, [None])
-        self.ecall_i = Input(bool)
-        self.mret_i = Input(bool)
+        self.pc_i = Input(int, [self.process])
+        self.ecall_i = Input(bool, [self.process])
+        self.mret_i = Input(bool, [self.process])
 
         self.raise_exception_o = Output(bool)
         self.npc_o = Output(int)
@@ -20,7 +20,7 @@ class ExceptionUnit(Module):
         self.mepc_o = Output(int)
         self.trap_return_o = Output(bool)
 
-        self.mepc_o << self.pc_i
+        self.register_stable_callbacks([self.process])
 
     def process(self):
         ecall = self.ecall_i.read()
