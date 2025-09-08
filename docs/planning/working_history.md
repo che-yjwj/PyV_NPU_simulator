@@ -287,5 +287,9 @@ V250812a
    6. 검증 및 테스트:
        * tests/test_smoke.py 외에 각 모듈(컴파일러 패스, 스케줄러, 메모리 모델 등)에 대한 상세한 유닛 테스트와, Loose/Tight 모드의 결과 일치성을 검증하는 회귀 테스트 세트 구축이 필요합니다. (PRD 마일스톤 M5, 검증 플랜)
 
+V250908a - TST-01 완료 및 ARC-02 리뷰 시작 (feature/tst-02-expand-coverage):
+  - `TST-01 | 테스트 커버리지 확대` 완료에 따라 칸반 보드를 업데이트.
+  - `ARC-02 | Py-V L1 캐시 구현`을 리뷰 상태로 변경.
+
 V250907a - L1 캐시 버그 수정 시작 (feature/fix-l1-cache-bugs):
   - pytest 실패 버그 수정 중.

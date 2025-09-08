@@ -3,9 +3,7 @@ v250903b
 
 ## 다음 작업 우선순위 (Top 5 Next Tasks)
 
-1.  **(Backlog / P1)** **TST-01 | 테스트 커버리지 확대**: `mapper.py`와 다양한 `SimConfig` 조합에 대한 테스트를 추가하여 신뢰도를 높입니다. (Effort: Medium)
-2.  **(Backlog / P1)** **M-01 | 메모리/버스 모델 고도화 v1**: `IOBufferTracker`의 FIFO 동작을 개선하고, 시스템 버스 모델을 추가하여 시뮬레이션 정확도를 높입니다. (Effort: Large)
-3.  **(Backlog / P1)** **ARC-02 | Py-V L1 캐시 구현**: `Py-V` RISC-V 코어에 L1 캐시를 추가하여 CPU 모델의 현실성을 높입니다. (Effort: Medium)
+1.  **(Backlog / P1)** **M-01 | 메모리/버스 모델 고도화 v1**: `IOBufferTracker`의 FIFO 동작을 개선하고, 시스템 버스 모델을 추가하여 시뮬레이션 정확도를 높입니다. (Effort: Large)
 4.  **(Backlog / P1)** **ARC-01 | L2 캐시 모델 구현**: NPU 클러스터에 하드웨어 관리형 L2 캐시 모델을 구현합니다. (Effort: Large)
 5.  **(Backlog / P1)** **C-02 | VC 코스트 모델 v1**: RVV 유사 제약(벡터 길이/issue rate) 반영한 element-wise/Reduce 코스트 모델 (Effort: Medium)
 
