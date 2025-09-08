@@ -64,3 +64,16 @@ def test_config_cycles_conversion():
     assert one_second_cycles == 1_200_000_000
     assert half_second_cycles == 600_000_000
     assert zero_cycles == 0
+
+
+def test_config_nonexistent_yaml_warning(capsys):
+    """Tests that a warning is printed for a nonexistent config file."""
+    non_existent_file = "nonexistent/path/to/config.yaml"
+    args = argparse.Namespace(config=non_existent_file, model="test.onnx", sim_level=None)
+
+    config = SimConfig.from_args(args)
+
+    captured = capsys.readouterr()
+    assert f"Warning: Config file {non_existent_file} not found." in captured.out
+    # Ensure config still has default values
+    assert config.sim_level == "IA_TIMING"

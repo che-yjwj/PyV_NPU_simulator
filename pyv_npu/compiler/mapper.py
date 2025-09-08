@@ -90,9 +90,12 @@ def _map_to_loose_program(g: Graph) -> Program:
             except KeyError as e:
                 raise ValueError(f"Error mapping output: Tensor {e} not found in graph tensor map.") from e
 
-    npu_inputs = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.inputs]
-    npu_outputs = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.outputs]
-    npu_initializers = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.initializers]
+    try:
+        npu_inputs = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.inputs]
+        npu_outputs = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.outputs]
+        npu_initializers = [NpuTensor.from_model_ir_tensor(g.tensors[t_name]) for t_name in g.initializers]
+    except KeyError as e:
+        raise ValueError(f"Error mapping final program tensors: Tensor {e} not found in graph tensor map.") from e
     
     return Program(ops=ops, inputs=npu_inputs, outputs=npu_outputs, initializers=npu_initializers)
 

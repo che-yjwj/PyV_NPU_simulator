@@ -84,42 +84,4 @@ def export_gantt_ascii(timeline):
 
     return chart
 
-def export_gantt_ascii(timeline):
-    if not timeline:
-        return "Timeline is empty."
 
-    max_time = max((item['end'] for item in timeline), default=0)
-    if max_time == 0:
-        return "Timeline has no duration."
-
-    # Group by engine
-    engine_lanes = {}
-    for item in timeline:
-        if item['engine'] not in engine_lanes:
-            engine_lanes[item['engine']] = []
-        engine_lanes[item['engine']].append(item)
-
-    # Sort engines for consistent output
-    sorted_engines = sorted(engine_lanes.keys())
-
-    chart = ""
-    scale = 80.0 / max_time if max_time > 0 else 0 # Scale to 80 characters width
-
-    chart += "NPU Simulation Timeline (ASCII Gantt Chart)\n"
-    chart += "" + ("-" * 90) + "\n"
-
-    for engine in sorted_engines:
-        chart += f"{engine:>8} |";
-        lane = ['-'] * 80
-        for item in engine_lanes[engine]:
-            start_pos = int(item['start'] * scale)
-            end_pos = int(item['end'] * scale)
-            for i in range(start_pos, end_pos):
-                if i < 80:
-                    lane[i] = '#'
-        chart += "".join(lane) + "\n"
-    
-    chart += "" + ("-" * 90) + "\n"
-    chart += f"0 cycles {" " * 75}{max_time} cycles\n"
-
-    return chart

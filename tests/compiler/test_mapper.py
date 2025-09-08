@@ -192,3 +192,43 @@ def test_map_ir_loose_mode_graph_split():
     load_ops = [op for op in program.ops if op.opcode == Opcode.LOAD]
     load_op_dram_names = [op.inputs[0].name for op in load_ops]
     assert "out1" not in load_op_dram_names
+
+
+def test_loose_mode_creates_store_for_graph_output():
+    """Tests that a STORE op is created for a graph output from a node."""
+    # given
+    nodes = [Node(name="node1", op_type="MatMul", inputs=["inp", "w1"], outputs=["final_out"])]
+    tensors = {
+        "inp": Tensor(name="inp", shape=(1, 128), dtype="float32"),
+        "w1": Tensor(name="w1", shape=(128, 128), dtype="float32"),
+        "final_out": Tensor(name="final_out", shape=(1, 128), dtype="float32"),
+    }
+    ir = Graph(
+        nodes=nodes,
+        inputs=["inp"],
+        outputs=["final_out"],
+        initializers=["w1"],
+        tensors=tensors,
+    )
+
+    # when
+    program = map_model_ir_to_npu_program(ir, mode='loose')
+
+    # then
+    store_ops = [op for op in program.ops if op.opcode == Opcode.STORE]
+    assert len(store_ops) == 1
+    assert store_ops[0].name == "store_output_final_out"
+    assert store_ops[0].inputs[0].name == "final_out_spm"
+    assert store_ops[0].outputs[0].name == "final_out"
+
+
+def test_loose_mode_raises_error_for_missing_output_tensor():
+    """Tests ValueError when a graph output is not in the tensor map."""
+    # given
+    ir = helper_create_model_ir([])
+    # Intentionally create a malformed graph
+    ir.outputs = ["missing_tensor"]
+
+    # when/then
+    with pytest.raises(ValueError, match="Error mapping final program tensors: Tensor .* not found"):
+        map_model_ir_to_npu_program(ir, mode='loose')
