@@ -34,12 +34,14 @@ class SimConfig:
     tc: int = 2
     vc: int = 4
     spm_banks: int = 8
+    spm_bank_ports: int = 2
     spm_capacity_kib: int = 2048  # 2 MiB
     l0_spm_size_kb: int = 16 # L0 cache size for each TC
     l0_spm_latency_cycles: int = 5 # L0 cache latency in cycles
     systolic_array_height: int = 16
     systolic_array_width: int = 16
     dma_channels: int = 2
+    dma_burst_size: int = 64
 
     # IO Buffer Parameters
     io_buffer_size_kb: int = 128

@@ -1,3 +1,8 @@
+V250909a - M-01: 메모리 모델 파라미터화 (feature/m-01-memory-model-enhancement-v2):
+  - `SimConfig`에 `spm_bank_ports`와 `dma_burst_size` 파라미터를 추가.
+  - `BankTracker`가 SPM 포트 경합을 모델링하도록 수정하고, `BandwidthTracker`가 DMA 버스트 크기를 고려하도록 수정.
+  - 새로운 포트 및 뱅크 경합 로직을 검증하는 단위 테스트를 추가하고, 전체 테스트 통과를 확인.
+
 V250905a - 메모리 모델 개선 (feature/m-01-memory-model-enhancement):
   - `IOBufferTracker`를 실제 FIFO 동작에 맞게 리팩토링하고, 관련 테스트 코드를 수정하여 안정성을 검증.
   - 시스템 버스 경합을 모델링하는 `SystemBusTracker`를 추가하고, 스케줄러에 연동하여 DRAM 접근 시 버스 지연을 고려하도록 수정.

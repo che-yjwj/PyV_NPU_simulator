@@ -91,6 +91,12 @@ class BandwidthTracker:
 
     def get_transfer_cycles(self, num_bytes: int) -> int:
         if self.bw_gbps == 0: return 0
+
+        # Factor in DMA burst size for DRAM transfers
+        if self.name == "dram" and self.config.dma_burst_size > 0:
+            burst_size = self.config.dma_burst_size
+            num_bytes = (num_bytes + burst_size - 1) // burst_size * burst_size
+
         seconds = num_bytes / (self.bw_gbps * 1e9)
         return self.config.cycles(seconds)
 
@@ -106,6 +112,7 @@ class BankTracker:
     """Models SPM bank contention. Refactored to separate probe and commit."""
     def __init__(self, config: SimConfig):
         self.num_banks = config.spm_banks
+        self.num_ports = config.spm_bank_ports
         self.bank_timelines: List[List[Tuple[int, int]]] = [[] for _ in range(self.num_banks)]
 
     def probe_earliest_free_slot(self, start_cycle: int, duration: int, num_banks_needed: int) -> Tuple[int, List[int]]:
@@ -114,6 +121,18 @@ class BankTracker:
         
         current_try_cycle = start_cycle
         while current_try_cycle < start_cycle + 1000000: # Add a timeout
+            # Check for port availability at the current cycle
+            num_busy_at_start = 0
+            for i in range(self.num_banks):
+                for busy_start, busy_end in self.bank_timelines[i]:
+                    if current_try_cycle >= busy_start and current_try_cycle < busy_end:
+                        num_busy_at_start += 1
+                        break # Check next bank
+            
+            if self.num_ports - num_busy_at_start < num_banks_needed:
+                current_try_cycle += 1
+                continue
+
             free_banks = []
             for i in range(self.num_banks):
                 is_free = True
