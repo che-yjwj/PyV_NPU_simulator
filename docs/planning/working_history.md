@@ -1,3 +1,7 @@
+V250909b - M-01: DRAM 정책 파라미터화 적용 (feature/m-01-dram-policy-parameterization):
+  - DramAddressMapper가 하드코딩된 페이지 크기 대신 SimConfig의 `dram_page_size`를 사용하도록 수정.
+  - `dram_mapping_policy` 설정을 존중하도록 매핑 로직을 수정하고, 관련 단위 테스트를 수정하여 안정성 확보.
+
 V250909a - M-01: 메모리 모델 파라미터화 (feature/m-01-memory-model-enhancement-v2):
   - `SimConfig`에 `spm_bank_ports`와 `dma_burst_size` 파라미터를 추가.
   - `BankTracker`가 SPM 포트 경합을 모델링하도록 수정하고, `BandwidthTracker`가 DMA 버스트 크기를 고려하도록 수정.

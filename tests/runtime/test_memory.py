@@ -7,10 +7,9 @@ def test_dram_address_mapper_interleave():
     config = SimConfig(
         dram_channels=4,
         dram_banks_per_channel=8,
-        dram_mapping_policy="interleave"
+        dram_mapping_policy="interleave",
+        dram_page_size=2048  # Explicitly set for this test
     )
-    # In the current implementation, row_size is fixed at 2048
-    row_size = 2048
     
     mapper = DramAddressMapper(config)
 

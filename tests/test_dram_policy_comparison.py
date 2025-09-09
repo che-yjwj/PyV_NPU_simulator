@@ -30,7 +30,13 @@ def test_dram_policy_collision_comparison():
 
     # --- Run with settings designed to avoid collisions ---
     # Use multiple channels. Addresses are chosen to map to different channels.
-    config_no_collide = SimConfig(sim_level='CA_HYBRID', dram_channels=2, dram_banks_per_channel=2, dram_mapping_policy='interleave')
+    config_no_collide = SimConfig(
+        sim_level='CA_HYBRID',
+        dram_channels=2,
+        dram_banks_per_channel=2,
+        dram_mapping_policy='interleave',
+        dram_page_size=2048  # Set page size so addr 2048 maps to a new channel
+    )
     # addr1 (0) maps to channel 0. addr2 (2048) maps to channel 1.
     prog_no_collide = create_program_with_parallel_loads(addr1=0, addr2=2048)
     schedule_no_collide, stats_no_collide = run_sim(prog_no_collide, config_no_collide)
