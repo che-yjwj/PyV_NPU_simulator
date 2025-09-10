@@ -17,10 +17,316 @@ V250903b - 스케줄러 리팩토링 완료 (feature/ref-02-scheduler-refactorin
   - 리팩토링 후 `pytest`를 실행하여 전체 테스트(246개)가 통과하는 것을 확인, 코드 안정성을 검증.
   - `kanban_board.md`의 `REF-02` 항목을 `Done`으로 이동하여 문서 상태를 동기화.
 
+V250910a - M-01 수용 기준 충족 (feature/m-01-add-validation-tests):
+  - IOBufferTracker의 FIFO 동작을 검증하는 단위 테스트를 tests/runtime/test_resources.py에 추가.
+  - DMA burst size 변화에 따른 P95 latency 변동을 리포팅하는 벤치마크 테스트(tests/test_burst_size_impact.py)를 추가.
+  - 리포팅 모듈(reporting.py)이 DMA latency 통계를 수집하도록 수정하고, 시뮬레이터(simulator.py)가 통계 수집을 호출하도록 수정하여 P95 리포트가 정상적으로 생성되도록 함.
+
+V250909b - M-01: DRAM 정책 파라미터화 적용 (feature/m-01-dram-policy-parameterization):
+  - DramAddressMapper가 하드코딩된 페이지 크기 대신 SimConfig의 `dram_page_size`를 사용하도록 수정.
+  - `dram_mapping_policy` 설정을 존중하도록 매핑 로직을 수정하고, 관련 단위 테스트를 수정하여 안정성 확보.
+
+V250909a - M-01: 메모리 모델 파라미터화 (feature/m-01-memory-model-enhancement-v2):
+  - `SimConfig`에 `spm_bank_ports`와 `dma_burst_size` 파라미터를 추가.
+  - `BankTracker`가 SPM 포트 경합을 모델링하도록 수정하고, `BandwidthTracker`가 DMA 버스트 크기를 고려하도록 수정.
+  - 새로운 포트 및 뱅크 경합 로직을 검증하는 단위 테스트를 추가하고, 전체 테스트 통과를 확인.
+
+V250905a - 메모리 모델 개선 (feature/m-01-memory-model-enhancement):
+  - `IOBufferTracker`를 실제 FIFO 동작에 맞게 리팩토링하고, 관련 테스트 코드를 수정하여 안정성을 검증.
+  - 시스템 버스 경합을 모델링하는 `SystemBusTracker`를 추가하고, 스케줄러에 연동하여 DRAM 접근 시 버스 지연을 고려하도록 수정.
+  - `README.md`, `code_review.md`, `kanban_board.md` 등 관련 문서를 최신 코드 상태에 맞게 업데이트.
+
+V250903b - 스케줄러 리팩토링 완료 (feature/ref-02-scheduler-refactoring):
+  - `run_scheduler_pass`의 복잡도를 낮추기 위해, 최적의 다음 연산을 찾는 로직을 `_find_best_candidate_op` 헬퍼 함수로 분리.
+  - 리팩토링 후 `pytest`를 실행하여 전체 테스트(246개)가 통과하는 것을 확인, 코드 안정성을 검증.
+  - `kanban_board.md`의 `REF-02` 항목을 `Done`으로 이동하여 문서 상태를 동기화.
+
 V250903a - 칸반 보드 동기화 및 스케줄러 리팩토링 시작 (feature/ref-02-scheduler-refactoring):
   - 코드베이스 분석 결과, `REF-03 | Opcode 상수화` 과제가 이미 대부분 완료되었음을 확인.
   - 칸반 보드(`kanban_board.md`)의 `REF-03`을 `Done`으로 이동하고, `REF-02 | 스케줄러 가독성 개선`을 `In-Progress`로 변경하여 현재 상태를 정확히 반영.
   - `REF-02` 작업을 위해 `feature/ref-02-scheduler-refactoring` 브랜치를 생성하고, `scheduler.py`의 `run_scheduler_pass` 함수 리팩토링 작업을 시작.
+
+V250901c - TST-01: mapper.py 테스트 커버리지 확대 (feature/tst-01-add-mapper-tests):
+  - `compiler/mapper.py`의 리팩토링된 코드 구조(`Graph` 클래스, `map_model_ir_to_npu_program` 함수)에 맞춰 테스트 코드를 전면 수정.
+  - `loose` 및 `tight` 모드에 대한 다중 연산, 빈 모델, 미지원 Opcode 등 엣지 케이스 테스트를 보강하여 안정성 향상.
+
+V250831a
+  - 문서와 코드베이스 상태 동기화 (docs/sync-codebase-state):
+    - `MEM-02` (I/O 버퍼 모델) 완료에 따라 `docs/planning/kanban_board.md`의 상태를 `In-Progress`에서 `Done`으로 업데이트.
+    - `README.md`의 설정 테이블과 아키텍처 다이어그램에 `L0 SPM` 및 `I/O Buffer` 관련 내용을 추가하여 최신 아키텍처를 반영.
+    - `docs/architecture` 아래의 문서들이 최신 상태임을 확인하고, 전체적인 문서 일관성을 검토.
+
+V250828a
+  - L0 SPM 모델 구현 (MEM-01):
+    - `config.py`에 L0 SPM 관련 파라미터(size, latency)를 추가.
+    - `resources.py`에 TC별 L0 캐시 상태를 추적하는 `L0SPMTracker` 클래스를 구현.
+    - 스케줄러가 TC 연산 시 L0 히트/미스를 고려하여 지연 시간을 계산하도록 `scheduler.py`를 수정.
+  - 스케줄러 및 테스트 안정화:
+    - 리소스 경합 및 의존성 stall을 더 정확하게 계산하도록 스케줄러의 연산 선택 로직을 리팩토링.
+    - `mapper`, `onnx_importer`의 테스트 불일치 및 `DRAM` 충돌 감지 로직을 수정하여 전체 테스트 스위치가 통과하도록 안정화.
+
+V250826c
+  - 칸반 보드와 코드베이스 상태 동기화:
+    - `pyv_npu` 코드베이스 분석을 통해 `INT-01 | Py-V MMIO 연동 훅 구현` 작업의 핵심 로직이 `bridge/mem.py`에 이미 구현되었음을 확인.
+    - 분석 결과에 따라 칸반 보드의 `INT-01` 항목을 `Ready`에서 `Done` 상태로 이동하여 현재 개발 상태를 정확히 반영하도록 수정.
+    - 칸반 보드의 '다음 작업 우선순위' 목록을 최신 상태로 업데이트.
+
+V250826b
+  - 문서 구조 재정리 및 계획 업데이트:
+    - 여러 PRD 및 아키텍처 문서를 검토하고, 중복 내용을 통합하여 `system_architecture.md`와 `feature_roadmap.md`를 최신 상태로 업데이트.
+    - 오래되거나 통합된 문서들(`NPU_Simulator_Memory_Hierarchy.md`, `system_analysis.md` 등)을 `archive` 폴더로 이동하여 문서 구조를 명확히 함.
+    - 메인 PRD(`docs/prd/README.md`)에 세부 PRD들의 요약 정보를 추가하여 중앙 인덱스 역할을 강화.
+  - 칸반 보드 정리 및 우선순위 정의:
+    - 칸반 보드를 분석하여 현재 가장 우선순위가 높은 5개의 작업을 식별.
+    - 분석 결과를 `kanban_board.md` 문서 상단에 추가하고, 완료된 항목을 정리하여 보드의 가독성을 높임.
+
+V250826a
+  - Double Buffering 기능 구현 (SCH-02):
+    - 연산(Compute)과 데이터 전송(DMA)을 중첩 실행하여 NPU 효율을 높이는 Double Buffering 기능을 구현.
+    - 스케줄러가 LOAD/STORE와 MatMul 같은 연산을 독립적으로 스케줄링하고, 다중 DMA 채널과 SPM 뱅크 등 리소스를 개별적으로 추적하도록 수정.
+    - `test_double_buffering_overlap` 테스트를 추가하여, 연산 중에 다음 연산을 위한 데이터 로딩이 중첩되어 일어나는 것을 검증.
+
+V250824a
+  - 시뮬레이션 레벨 파라미터 명확성 개선:
+    - 캐시 레벨과의 혼동을 피하기 위해 시뮬레이션 레벨 파라미터 이름을 `level`에서 `sim_level`로 변경.
+    - `L0`, `L1`과 같은 모호한 값 대신, `IA`, `IA_TIMING`, `CA_HYBRID` 등 의미가 명확한 문자열 값을 사용하도록 수정.
+  - 아키텍처 리팩토링 및 테스트 수정:
+    - `sim_level` 변경 과정에서 `pytest` 실행 시 `ImportError` 발견.
+    - 핵심 `pyv` 시뮬레이터가 확장 모듈 `pyv_npu`에 의존하는 아키텍처 문제를 발견하고, 관련 코드를 제거하여 모듈 간 의존성을 분리(decouple).
+    - 리팩토링으로 인해 발생한 다수의 테스트 실패(AttributeError, TypeError, IndentationError)를 모두 수정.
+  - 검증:
+    - 수정한 내용을 검증하기 위해 `pytest`로 전체 테스트 스위트를 실행하여 모든 테스트가 통과함을 확인.
+    - `pyv-npu run --help` 명령어로 CLI 인터페이스가 올바르게 변경되었는지 최종 확인.
+
+V250816a
+  T-01 과제 완료 요약:
+   1. 설정 추가: config.py에 tight 모드 제어 관련 지연 시간 파라미터를 추가했습니다.
+   2. 리소스 모델링: NPU 명령어 처리율을 모델링하는 IssueQueueTracker를 추가했습니다.
+   3. 스케줄러 리팩토링 (핵심):
+       * ENQCMD_T로 제출된 NPU 작업을 별도의 npu_work_queue에서 관리하도록 스케줄러 아키텍처를 변경했습니다.
+       * ENQCMD_T (CPU) -> ENQCMD_COMPLETE 이벤트 -> npu_work_queue에 작업 추가 -> NPU 엔진에 스케줄링 ->   
+         OP_COMPLETE 이벤트 -> TWAIT 해제'로 이어지는, 실제와 유사한 이벤트 흐름을 구현했습니다.
+       * 새로운 제어 지연 시간(doorbell, csr, issue_rate)을 calculate_op_timing에 반영했습니다.
+   4. 리포팅: tight 모드의 제어 오버헤드 통계(p50, p95 등)를 계산하고 표시하도록 리포팅 모듈을
+      업데이트했습니다.
+   5. 검증: 신규 기능을 검증하고 수용 기준을 만족시키는 test_tight_vs_loose_overhead_comparison 테스트를    
+      추가하고, 모든 테스트 통과를 확인했습니다.
+
+V250815a
+리소스/성능 모델 개선 제안 (단기)
+
+1. BandwidthTracker 병렬화 옵션
+  * 현재는 전송 직렬화. num_channels/inflight_limit 추가해 (채널별 타임라인)로 overlap 모델 지원.
+  * DRAM/NoC 각각에 독립 채널 모델 → get_transfer_cycles() 동일, book_transfer()에서 가장 빠르게 끝나는 채널 선택.
+
+2. BankTracker 가속
+  * 현재 1-cycle씩 증가하며 슬롯 탐색.
+  * 개선: 각 뱅크에 대해 “다음 빈틈 시각”을 min-heap으로 유지 → 점프 스케줄링.
+3. stall 분해 통계
+  * stall_reason 단일 문자열 대신, stall = {'dep':x, 'dram':y, 'noc':z, 'engine':w, ...} 누적.
+  * 리포트/시각화에서 빨강 해치는 dep, 주황은 dram 등으로 분해 표시.
+4. L3로 확장 시
+  * 엔진별 파이프라인 단계(Load/Compute/Store) 분리, 같은 엔진 내 오버랩 허용.
+  * DMA와 TC/VC 사이의 더블버퍼링(ping-pong) 모델 추가.
+
+V250814b: 스케줄러 Stall 로직 수정 및 테스트 안정화
+  ✦ 완료된 작업:
+
+   1. Stall 원인 분석 및 로직 수정:
+       * `tests/test_scheduler.py`의 실패 케이스 분석 결과, `runtime/scheduler.py`의 `event_driven_schedule` 함수가 자원 경합 시 `stall_cycles`를 잘못 계산하는 버그를 발견했습니다.
+       * `runtime/resources.py`의 `BankTracker`가 동시 다중 bank 점유 요청을 올바르게 처리하도록 수정하여, Stall 계산 정확도를 높였습니다.
+
+   2. 검증 테스트 케이스 추가:
+       * 수정된 Stall 로직을 검증하기 위해, `tests/test_scheduler.py`에 다중 bank 동시 접근으로 의도적인 경합을 일으키는 테스트 케이스를 추가하고 통과를 확인했습니다.
+
+  ✦ 남은 작업:
+
+   * 회귀 테스트 실행: Stall 로직 수정이 다른 기능('tight' 모드 등)에 영향을 주지 않았는지 전체 테스트 스위트를 실행하여 검증해야 합니다.
+   * M4: Py-V 연동 준비: 현 단계 안정화 이후, M4 마일스톤인 Py-V 시뮬레이터 연동 설계 작업을 본격적으로 시작할 예정입니다.
+   * 칸반 보드 업데이트: `docs/kanban_board.md`의 관련 태스크를 최신 상태로 업데이트해야 합니다.
+
+V250813e: 'tight' 모드 시뮬레이션 및 리포트 기능 강화
+  ✦ 완료된 작업:
+
+   1. 'tight' 모드 구현 (M3 마일스톤 일부):
+       * 컴파일러 매퍼 수정: 'tight' 모드에서 ENQCMD_T, TWAIT 같은 커스텀 명령어를 포함하는 NPU 프로그램을 생성하도록
+         mapper.py를 수정했습니다.
+       * 스케줄러 수정: L2 이벤트 기반 스케줄러가 'tight' 모드를 지원하도록 업데이트했습니다. CPU와 NPU 작업 큐를 분리하고,
+         티켓 기반으로 NPU 작업 완료를 추적하여 TWAIT 명령을 처리하는 로직을 구현했습니다.
+       * 테스트 추가: 'tight' 모드 시뮬레이션을 검증하기 위한 테스트 케이스를 추가하고 모든 테스트 통과를 확인했습니다.
+
+   2. 리포트 기능 강화:
+       * HTML 간트 차트: plotly 라이브러리를 사용하여 시뮬레이션 타임라인을 대화형 HTML 간트 차트로 시각화하는 기능을
+         구현했습니다. (--gantt 옵션)
+       * ASCII 간트 차트: HTML/JS 실행이 제한된 환경을 위해, 터미널에 직접 출력되는 텍스트 기반 간트 차트 생성 기능을
+         추가하여 안정성을 높였습니다. (--ascii-gantt 옵션)
+
+  ✦ 남은 작업:
+
+   * M3: MLIR 연동: 'tight' 모드 구현의 다음 단계로, MLIR Dialect/Lowering을 통한 컴파일러 패스 구체화가 필요합니다.
+   * M4: Py-V 연동: NPU 시뮬레이터를 Py-V RISC-V 시뮬레이터와 연동하여 End-to-End 시뮬레이션을 완성해야 합니다.
+   * 고급 스케줄링 및 자원 모델링: PRD에 명시된 CP-prio, Bank-aware 배치 등 고급 스케줄링 정책과 Cache Coherence, Prefetch 등
+     세부 메모리 모델링이 필요합니다.
+
+V250812d
+ 수행한 작업은 다음과 같습니다.
+
+   1. ENQCMD_T 및 TWAIT 명령을 생성하는 tight 모드를 컴파일러 매퍼에 구현했습니다.
+   2. L2 이벤트 기반 스케줄러를 수정하여 다음을 포함한 tight 모드를 처리하도록 했습니다.
+       * CPU 및 NPU 작업 큐
+       * ENQCMD_T 및 TWAIT 명령 처리 로직
+       * NPU 작업 완료를 추적하는 티켓 시스템
+   3. tight 모드 L2 시뮬레이션을 확인하기 위한 새로운 테스트 케이스를 추가했습니다.
+   4. 여러 버그를 수정했습니다.
+
+  MLIR 통합이 남아있어 M3 마일스톤이 완전히 완료된 것은 아니지만, 시뮬레이터에 사용자 정의 ISA를 구현하는 핵심 작업은
+  완료되었습니다. 진행 상황을 알려드리겠습니다.M3의 핵심인 'tight' 모드와 커스텀 ISA의 시뮬레이터 연동을 성공적으로
+  마쳤습니다. 모든 관련 테스트가 통과하는 것을 확인했습니다.
+
+  이제 다음 단계로 MLIR 연동을 진행할 수 있지만, 그 전에 현재 시뮬레이션 결과를 더 쉽게 분석할 수 있도록 리포트 기능을
+  강화하는 것을 제안합니다.
+
+  현재 시뮬레이션 결과는 JSON 파일로 저장됩니다. PRD에 명시된 대로, 이 데이터를 간트 차트(Gantt chart)와 같은 시각적인
+  형태로 표현하면 각 엔진의 타임라인과 병목 현상을 직관적으로 파악하는 데 큰 도움이 될 것입니다.
+
+  이 리포트 기능 강화 작업을 먼저 진행하는 것이 어떨까요? 아니면 바로 MLIR 연동 작업으로 넘어갈까요?
+V250812c
+✦ 자, 지금까지 다음 작업들을 완료했습니다.
+
+   1. 자원 모델 구현 (`resources.py`): DRAM 대역폭과 SPM Bank 경합을 추적하는 BandwidthTracker와 BankTracker를 추가했습니다.
+   2. 스케줄러 개선 (`scheduler.py`): event_driven_schedule이 자원 모델을 사용하여 연산의 시작/종료 시간을 더 정확하게
+      계산하도록 업데이트했습니다.
+   3. Mapper 업데이트 (`mapper.py`): ONNX 모델의 텐서 정보를 NPU 연산(NPUOp)의 인자(args)로 전달하여 스케줄러가 타이밍 계산에
+      사용할 수 있도록 수정했습니다.
+   4. IR 및 시뮬레이터 정리 (`isa/npu_ir.py`, `runtime/simulator.py`): IR 클래스를 개선하고 시뮬레이터의 리포트 생성 로직을
+      정리했습니다.
+
+  이로써 PRD의 M2: L2 이벤트 기반 경합 모델 구현 마일스톤의 핵심적인 부분을 완료했습니다. 이제 시뮬레이터는 단순한 기능 검증을
+  넘어, 하드웨어 자원 경합을 고려한 성능 분석(L2 Level)을 수행할 수 있는 기반을 갖추게 되었습니다.
+
+  다음으로 어떤 작업을 진행할까요? 제안 가능한 다음 단계는 다음과 같습니다.
+
+   * 검증 및 테스트: 수정한 L2 시뮬레이터가 의도대로 동작하는지 확인하기 위해 테스트 케이스를 작성하고 실행합니다.
+   * M3: TC Custom ISA 및 MLIR 연동: tight 모드 구현을 구체화하여 ENQCMD_T, TWAIT 같은 커스텀 명령어를 처리하는 로직을
+     스케줄러에 본격적으로 연동합니다.
+   * 리포트 기능 강화: 현재 JSON으로 출력되는 리포트를 PRD에 명시된 Gantt 차트(HTML/SVG) 등으로 시각화하는 기능을 추가합니다.
+   
+V250812b
+  PRD 문서와 코드베이스를 종합하여 현재까지 구현된 기능과 개발 수준을 정리했습니다.
+
+  결론: M2 마일스톤의 초기 단계, 즉 L2 시뮬레이션의 기본 골격 구현에 집중된 상태입니다.
+
+  PRD의 요구사항과 비교한 상세 내역은 다음과 같습니다.
+
+  1. 입력 및 프론트엔드 (M0, M3)
+   * ONNX 입력 (구현 완료): pyv_npu/ir/onnx_importer.py를 통해 ONNX 모델을 로드하여 내부 IR(Model_IR)로 변환하는 기능이
+     구현되어 있습니다. examples/tinyllama.onnx 파일이 있는 것으로 보아 실제 모델 테스트도 고려하고 있습니다.
+   * NPU-IR (기본 구조 구현): pyv_npu/ir/npu_ir.py에 NPUOp와 Program 클래스가 정의되어 있어, PRD에 명시된 NPU-IR 스키마의 기본
+     틀이 잡혀있습니다.
+   * 컴파일러 패스 (뼈대만 구현):
+       * fusion.py, quantization.py, tiling.py 파일은 존재하지만, 내부 로직은 아직 비어있거나(TODO) 단순 통과(pass-through)
+         형태로 되어 있습니다.
+       * 이는 M3의 MLIR Dialect/Lowering으로 가기 위한 초기 구조 설계로 보입니다.
+
+  2. RISC-V 연동 및 Custom ISA (M3, M4)
+   * Tight-Coupled Custom ISA (설계/정의 완료): pyv_npu/isa/riscv_ext.py 파일에 PRD에서 요구한 ENQCMD_T, TWAIT, TBAR, TSTAT
+     명령어의 데이터 구조가 명확히 정의되어 있습니다. 이는 M3의 핵심인 TC Custom ISA 설계가 완료되었음을 의미합니다.
+   * Loose/Tight 모드 전환 (CLI 구현): pyv_npu/cli/main.py에서 --mode loose/tight 옵션을 제공하여 두 연동 방식을 선택할 수
+     있도록 CLI가 구현되어 있습니다. PRD의 CLI 예시와 거의 일치합니다.
+   * Py-V 연동 (진행 중): 실제 py-v 시뮬레이터와의 훅(hook) 연결 로직은 아직 명확하게 보이지 않습니다. 현재는 NPU 단독
+     시뮬레이션에 집중하고 있으며, M4에서 본격적인 연동이 진행될 것으로 예상됩니다.
+
+  3. 백엔드 및 시뮬레이터 (M1, M2)
+   * 시뮬레이션 레벨 (L0/L1/L2 지원): pyv_npu/runtime/simulator.py 와 cli/main.py에서 --level L0/L1/L2 옵션을 선택할 수
+     있습니다.
+   * 스케줄러 (L2 기본 구현): simulator.py에서 level 값에 따라 simple_greedy_schedule (L0/L1 용) 또는 event_driven_schedule (L2
+     용)을 선택하는 로직이 있습니다. 이는 M2의 핵심인 이벤트 기반 경합 모델의 기초가 구현되었음을 시사합니다.
+   * 타이밍/자원 모델 (개념만 존재): 현재 시뮬레이터는 스케줄러가 계산한 사이클을 그대로 사용하며, PRD에 명시된 DRAM 대역폭,
+     Bank 충돌 등 상세한 L2 모델은 아직 구현되지 않았습니다. (주석으로 "In a real L2/L3 simulation, timing would be calculated
+     here" 라고 명시됨)
+
+  4. 출력 및 리포트
+   * 기본 리포트 (JSON 출력): 시뮬레이션 결과로 총 사이클, 엔진 활용도, 타임라인을 포함하는 report.json 파일을 생성합니다.
+     PRD에서 요구한 Gantt 차트, Roofline 분석 등 시각적인 리포트는 아직 구현되지 않았습니다.
+
+  PRD 대비 현재 상태 요약
+
+
+  ┌─────────────────────────────┬──────────────────────────────────────┬───────────────────────────────────────────┐
+  │ PRD 요구사항 (마일스톤)     │ 현재 구현 상태                       │ 근거 파일                                 │
+  ├─────────────────────────────┼──────────────────────────────────────┼───────────────────────────────────────────┤
+  │ ONNX 입력 (M0)              │ 완료                                 │ ir/onnx_importer.py, cli/main.py          │
+  │ NPU-IR 정의 (M0)            │ 완료                                 │ ir/npu_ir.py                              │
+  │ **L0/L1 기능/타일-타임 (M0... │ 기본 구현                            │ runtime/simulator.py, `runtime/schedul... │
+  │ L2 이벤트/자원 모델 (M2)    │ 초기 단계 (스케줄러 선택 로직만 ...  │ runtime/simulator.py                      │
+  │ TC Custom ISA 설계 (M3)     │ 완료 (데이터 구조 정의)              │ isa/riscv_ext.py                          │
+  │ 컴파일러 패스_ (M3)          │ 뼈대만 구현                          │ compiler/passes/*.py                      │
+  │ Py-V 연동 (M4)              │ 미구현 (CLI 옵션만 존재)             │ cli/main.py                               │
+  │ 상세 리포트 (HTML/SVG)      │ 미구현 (기본 JSON 리포트만 제공)     │ runtime/simulator.py                      │
+  └─────────────────────────────┴──────────────────────────────────────┴───────────────────────────────────────────┘
+
+
+  정리하자면, 프로젝트는 ONNX 모델을 입력받아 NPU-IR로 변환하고, 정의된 Custom ISA를 바탕으로 L2 수준의 이벤트 기반 
+  시뮬레이션을 실행하기 위한 핵심 골격을 구축한 단계에 있습니다. 다음 단계는 스케줄러와 시뮬레이터에 실제적인 경합 및 자원
+  모델을 구현하고(M2 완료), py-v와의 연동(M4)을 진행하는 것이 될 것으로 보입니다.
+
+V250812a
+  기능 구현 현황 분석 
+
+  ✅ 구현된 기능 (Implemented)
+
+   1. 입력 형식 (Input):
+       * ONNX 모델 로딩: ir/onnx_importer.py를 통해 ONNX 파일을 읽어 내부 IR(Model_IR)로 변환하는 기능이 구현되어 있습니다. (PRD 요구사항 1)
+
+   2. 컴파일러 패스 (Compiler Passes):
+       * Tiling, Fusion, Quantization: compiler/passes/ 내에 각 기능이 모듈로 구현되어 있으며, cli/main.py에서 순차적으로 호출합니다. (PRD 요구사항 2-b, 7)
+
+   3. NPU-IR 및 RISC-V ISA:
+       * NPU-IR 정의: isa/npu_ir.py에 NPUOp, Program 등 NPU 명령어 표현이 정의되어 있습니다. (PRD 요구사항 4)
+       * Tight-Coupled Custom ISA 정의: isa/riscv_ext.py에 ENQCMD_T, TWAIT 등 PRD의 Custom ISA가 정확히 정의되어 있습니다. (PRD 요구사항 9)
+
+   4. 시뮬레이터 핵심 로직 (Simulator Core):
+       * L0/L1/L2 레벨 지원: runtime/scheduler.py의 event_driven_schedule 함수는 이벤트 기반(L2) 스케줄링을 구현합니다. 이는 L0(기능 검증), L1(타일 시간) 모델을 포함하거나 확장할 수 있는 기반이 됩니다. (PRD 요구사항 3)
+       * Loose-Coupled (MMIO) 연동: Scheduler.handle_doorbell 메서드는 MMIO Doorbell을 통해 작업을 수신하고, 메모리에서 디스크립터를 읽어 파싱하는 로직을 구현했습니다. (PRD 요구사항 8, 13-A)
+       * Tight-Coupled (Custom ISA) 연동: event_driven_schedule 내에 config.mode == 'tight' 분기 처리가 있어, CPU가 ENQCMD_T 같은 명령을 내리는 시나리오를 시뮬레이션할 준비가 되어 있습니다. (PRD 요구사항 8, 13-B)
+       * 스케줄링: 이벤트 기반 스케줄러는 다중 엔진(TC/VC/DMA)의 유휴 상태를 추적하며 작업을 할당하는 기본 골격을 갖추고 있습니다. (PRD 요구사항 5)
+
+   5. CLI / API:
+       * PRD에 명시된 pyv-npu run, compile 명령어와 대부분의 인자(--mode, --level, --isa 등)가 cli/main.py에 구현되어 있습니다. (PRD 요구사항 8, 13-F)
+
+  ---
+
+  ⏳ 구현 필요 / 검증 필요한 기능 (To Be Implemented / Verified)
+
+   1. Py-V (RISC-V Core) 와의 완전한 연동:
+       * 현재 NPU 시뮬레이터(pyv-npu)는 독자적으로 실행 가능한 상태로 보입니다. 하지만 PRD의 최종 목표는 py-v RISC-V 시뮬레이터와의 연동입니다.
+       * Loose-Coupled: py-v가 MMIO 주소에 write할 때 Scheduler.handle_doorbell을 호출하는 "훅(hook)" 연결이 필요합니다.
+       * Tight-Coupled: py-v의 디코더가 Custom ISA를 인지했을 때 isa/riscv_ext.py에 정의된 동작을 수행하도록 하는 "훅" 연결이 필요합니다. (PRD 마일스톤 M4)
+
+   2. 성능/자원 모델 고도화:
+       * scheduler.py의 estimate_op_duration 함수는 현재 간단한 placeholder로 구현되어 있습니다. PRD에 명시된 Bank 충돌, NoC/DRAM 큐 모델, Token Bucket 대역폭 모델 등을 반영한 정교한 타이밍 모델 구현이 필요합니다. (PRD 요구사항 5, 6)
+       * Cache Coherence, Prefetch, L2 bypass 등 메모리 계층의 세부 동작 모델링이 필요합니다. (PRD 요구사항 4, 6)
+
+   3. 스케줄러 알고리즘 고도화:
+       * 현재 스케줄러는 기본적인 이벤트 기반 할당을 수행합니다. PRD에 언급된 CP-prio (Critical-Path Priority), Bank-aware 배치와 같은 고급 스케줄링 정책 구현이 필요합니다. (PRD 요구사항 5)
+
+   4. 리포팅 기능 구체화:
+       * 현재는 시뮬레이션 결과로 report.json에 사이클 수, 활용도 등을 저장합니다. PRD에서 요구하는 Gantt 차트(SVG), Roofline 분석, 병목 Top-N 리포트(HTML/CSV) 등 시각적이고 상세한 리포트 생성 기능 구현이 필요합니다. (utils/reporting.py, viz.py
+         확장) (PRD 요구사항 2-c)
+
+   5. MLIR 입력 지원:
+       * PRD에서 옵션으로 언급된 MLIR 입력을 처리하는 프론트엔드 구현이 필요합니다.
+
+   6. 검증 및 테스트:
+       * tests/test_smoke.py 외에 각 모듈(컴파일러 패스, 스케줄러, 메모리 모델 등)에 대한 상세한 유닛 테스트와, Loose/Tight 모드의 결과 일치성을 검증하는 회귀 테스트 세트 구축이 필요합니다. (PRD 마일스톤 M5, 검증 플랜)
+
+V250908a - TST-01 완료 및 ARC-02 리뷰 시작 (feature/tst-02-expand-coverage):
+  - `TST-01 | 테스트 커버리지 확대` 완료에 따라 칸반 보드를 업데이트.
+  - `ARC-02 | Py-V L1 캐시 구현`을 리뷰 상태로 변경.
+
+V250907a - L1 캐시 버그 수정 시작 (feature/fix-l1-cache-bugs):
+  - pytest 실패 버그 수정 중.
+
 
 V250901c - TST-01: mapper.py 테스트 커버리지 확대 (feature/tst-01-add-mapper-tests):
   - `compiler/mapper.py`의 리팩토링된 코드 구조(`Graph` 클래스, `map_model_ir_to_npu_program` 함수)에 맞춰 테스트 코드를 전면 수정.
