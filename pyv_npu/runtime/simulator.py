@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Tuple
 from ..config import SimConfig
 from ..isa.npu_ir import Program
 from .scheduler import simple_greedy_schedule, event_driven_schedule, ScheduleItem
+from ..utils.reporting import generate_report_json
 
 def run(program: Program, config: SimConfig) -> Tuple[List[ScheduleItem], Dict[str, Any]]:
     """
@@ -13,15 +14,18 @@ def run(program: Program, config: SimConfig) -> Tuple[List[ScheduleItem], Dict[s
     SimConfig, it will select the appropriate scheduling and timing models.
     """
     print(f"Running simulation with mode='{config.mode}' and level='{config.sim_level}'")
-    print(f"DEBUG: program: {program}")
+    # print(f"DEBUG: program: {program}")
 
     # --- Scheduler Selection --- 
     if config.sim_level == "IA":
       schedule = simple_greedy_schedule(program)
       stats = {}
     else: # IA_TIMING, CA_HYBRID, CA_FULL
-      print("DEBUG: Entering event_driven_schedule...")
+      # print("DEBUG: Entering event_driven_schedule...")
       schedule, stats = event_driven_schedule(program, config)
-      print("DEBUG: Exited event_driven_schedule.")
+      # print("DEBUG: Exited event_driven_schedule.")
+
+    # Populate the stats dict with derived metrics from the schedule
+    generate_report_json(schedule, config, stats)
 
     return schedule, stats

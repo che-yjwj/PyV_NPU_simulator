@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from ..config import SimConfig
 from ..runtime.scheduler import ScheduleItem
+from ..isa.opcode import Opcode
 from . import viz
 
 def _calculate_percentiles(data: List[float]) -> Dict[str, float]:
@@ -37,6 +38,7 @@ def generate_report_json(schedule: List[ScheduleItem], config: SimConfig, stats:
     engine_usage.update({"CPU0": 0})
 
     control_op_durations = []
+    dma_op_durations = []
 
     for item in schedule:
         duration = item.end_cycle - item.start_cycle
@@ -45,6 +47,9 @@ def generate_report_json(schedule: List[ScheduleItem], config: SimConfig, stats:
         
         if config.mode == 'tight' and item.engine.startswith("CPU"):
             control_op_durations.append(duration)
+        
+        if item.op.opcode in (Opcode.LOAD, Opcode.STORE):
+            dma_op_durations.append(duration)
 
         timeline_item = {
             'op': item.op.opcode,
@@ -63,6 +68,9 @@ def generate_report_json(schedule: List[ScheduleItem], config: SimConfig, stats:
 
     if control_op_durations:
         stats["control_overhead_stats"] = _calculate_percentiles(control_op_durations)
+    
+    if dma_op_durations:
+        stats["dma_latency_stats"] = _calculate_percentiles(dma_op_durations)
 
     utilization_abs = {}
     for eng, usage in engine_usage.items():
@@ -110,20 +118,9 @@ def generate_report(schedule: List[ScheduleItem], config: SimConfig, stats: Dict
         print("\nControl Overhead Stats (cycles):")
         for key, value in report_data['control_overhead_stats'].items():
             print(f"  {key:<5}: {value:.2f}")
-    if report_data.get('engine_utilization'):
-        print("\nEngine Utilization:")
-        for key, value in report_data['engine_utilization'].items():
-            print(f"  {key}: {value}")
-    print(f"\nTotal Cycles: {report_data['total_cycles']}")
-
-
-    print(f"\nReports generated in {output_dir.absolute()}")
-
-    if report_data.get('dram_collisions') is not None:
-        print(f"DRAM Bank Collisions: {report_data['dram_collisions']}")
-    if report_data.get('control_overhead_stats'):
-        print("\nControl Overhead Stats (cycles):")
-        for key, value in report_data['control_overhead_stats'].items():
+    if report_data.get('dma_latency_stats'):
+        print("\nDMA Latency Stats (cycles):")
+        for key, value in report_data['dma_latency_stats'].items():
             print(f"  {key:<5}: {value:.2f}")
     if report_data.get('engine_utilization'):
         print("\nEngine Utilization:")
