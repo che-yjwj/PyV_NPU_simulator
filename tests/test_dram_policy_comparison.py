@@ -21,7 +21,7 @@ def test_dram_policy_collision_comparison():
     """
     # --- Run with settings designed to cause collisions ---
     # Use a single channel and bank, so any parallel access will collide.
-    config_collide = SimConfig(sim_level='CA_HYBRID', dram_channels=1, dram_banks_per_channel=1, dma_channels=2)
+    config_collide = SimConfig(sim_level='CA_HYBRID', dram_channels=1, dram_banks_per_channel=1, dma_channels=2, l2_cache_enabled=False)
     prog_collide = create_program_with_parallel_loads(addr1=0, addr2=4096)
     schedule_collide, stats_collide = run_sim(prog_collide, config_collide)
     collisions_collide = stats_collide.get("dram_collisions", 0)

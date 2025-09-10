@@ -46,6 +46,15 @@ class SimConfig:
     # IO Buffer Parameters
     io_buffer_size_kb: int = 128
 
+    # L2 Cache Parameters
+    l2_cache_enabled: bool = True
+    l2_cache_size_kib: int = 4096  # 4 MiB
+    l2_cache_line_size_bytes: int = 64
+    l2_cache_associativity: int = 8
+    l2_cache_hit_latency_cycles: int = 20
+    l2_cache_miss_latency_cycles: int = 100 # Latency to fetch from next level (DRAM)
+    l2_cache_replacement_policy: str = "LRU"
+
     bw_dram_gbps: float = 102.4
     bw_noc_gbps: float = 256.0
     bw_bus_gbps: float = 128.0 # System bus bandwidth
