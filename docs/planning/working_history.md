@@ -17,6 +17,11 @@ V250903b - 스케줄러 리팩토링 완료 (feature/ref-02-scheduler-refactorin
   - 리팩토링 후 `pytest`를 실행하여 전체 테스트(246개)가 통과하는 것을 확인, 코드 안정성을 검증.
   - `kanban_board.md`의 `REF-02` 항목을 `Done`으로 이동하여 문서 상태를 동기화.
 
+V250910b - ARC-01: L2 캐시 모델 PR 리뷰 반영 및 수정:
+  - `pyv_npu/runtime/resources.py`에서 `math` 모듈 임포트 위치 수정, `log2` 사용 전 유효성 검사 추가, `hits`/`misses` 중복 초기화 제거, `get_stats` 반환 타입 힌트 수정.
+  - `pyv_npu/runtime/scheduler.py`에서 `io_buffer.can_push()` 중복 확인 제거.
+  - `tests/test_l2_cache_impact.py`에서 `l2_cache_size_kib`에 전달되는 float 값을 int로 수정.
+
 V250910a - M-01 수용 기준 충족 (feature/m-01-add-validation-tests):
   - IOBufferTracker의 FIFO 동작을 검증하는 단위 테스트를 tests/runtime/test_resources.py에 추가.
   - DMA burst size 변화에 따른 P95 latency 변동을 리포팅하는 벤치마크 테스트(tests/test_burst_size_impact.py)를 추가.
