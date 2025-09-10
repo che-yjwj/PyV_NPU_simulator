@@ -1,7 +1,7 @@
 
 import pytest
 from pyv_npu.config import SimConfig
-from pyv_npu.runtime.resources import BankTracker, IOBufferTracker
+from pyv_npu.runtime.resources import BankTracker, IOBufferTracker, L2CacheTracker
 
 
 @pytest.fixture
@@ -122,3 +122,144 @@ def test_bank_tracker_partial_port_contention(config: SimConfig):
     # Op2 finishes at cycle 50, freeing up its port.
     start_cycle_3, chosen_banks_3 = tracker.probe_earliest_free_slot(0, 10, 1)
     assert start_cycle_3 == 50
+
+
+@pytest.fixture
+def l2_config():
+    """Config for L2 cache tests."""
+    config = SimConfig()
+    config.l2_cache_enabled = True
+    config.l2_cache_size_kib = 1 # 1 KiB for easy testing
+    config.l2_cache_line_size_bytes = 64
+    config.l2_cache_associativity = 2 # 2-way set associative
+    config.l2_cache_hit_latency_cycles = 5
+    config.l2_cache_miss_latency_cycles = 50
+    return config
+
+def test_l2_cache_initialization(l2_config: SimConfig):
+    """Tests L2CacheTracker initialization."""
+    tracker = L2CacheTracker(l2_config)
+    assert tracker.enabled is True
+    assert tracker.size_bytes == 1024 # 1 KiB
+    assert tracker.line_size == 64
+    assert tracker.associativity == 2
+    assert tracker.hit_latency == 5
+    assert tracker.miss_latency == 50
+    assert tracker.num_lines == 1024 // 64 # 16 lines
+    assert tracker.num_sets == 16 // 2 # 8 sets
+    assert tracker.hits == 0
+    assert tracker.misses == 0
+
+def test_l2_cache_disabled(config: SimConfig):
+    """Tests L2CacheTracker when disabled."""
+    config.l2_cache_enabled = False
+    tracker = L2CacheTracker(config)
+    assert tracker.enabled is False
+    is_hit, latency = tracker.access(0x1000)
+    assert is_hit is False
+    assert latency == 0
+    assert tracker.hits == 0
+    assert tracker.misses == 0 # No misses counted if disabled
+
+def test_l2_cache_hit_and_miss(l2_config: SimConfig):
+    """Tests basic hit and miss behavior."""
+    tracker = L2CacheTracker(l2_config)
+
+    # First access: Miss
+    is_hit, latency = tracker.access(0x1000) # Address 0x1000
+    assert is_hit is False
+    assert latency == l2_config.l2_cache_miss_latency_cycles
+    assert tracker.hits == 0
+    assert tracker.misses == 1
+    assert tracker.get_stats()['miss_rate'] == 1.0
+
+    # Second access to same address: Hit
+    is_hit, latency = tracker.access(0x1000)
+    assert is_hit is True
+    assert latency == l2_config.l2_cache_hit_latency_cycles
+    assert tracker.hits == 1
+    assert tracker.misses == 1
+    assert tracker.get_stats()['hit_rate'] == 0.5
+
+    # Access another address (miss)
+    is_hit, latency = tracker.access(0x2000) # Different address, likely different set or new line
+    assert is_hit is False
+    assert latency == l2_config.l2_cache_miss_latency_cycles
+    assert tracker.hits == 1
+    assert tracker.misses == 2
+    assert tracker.get_stats()['miss_rate'] == 2/3
+
+def test_l2_cache_lru_replacement(l2_config: SimConfig):
+    """Tests LRU replacement policy."""
+    # Configure a small cache to easily test replacement
+    l2_config.l2_cache_size_kib = 1 # 1 KiB
+    l2_config.l2_cache_line_size_bytes = 64
+    l2_config.l2_cache_associativity = 2 # 2-way
+    # num_lines = 1024 / 64 = 16
+    # num_sets = 16 / 2 = 8
+    
+    tracker = L2CacheTracker(l2_config)
+
+    # Addresses mapping to Set 0 (index 0)
+    addr_A = 0x0000 # Tag A, Index 0
+    addr_B = 0x0200 # Tag B, Index 0 (assuming 8 sets, 0x200 / 64 = 8, so index 0)
+    addr_C = 0x0400 # Tag C, Index 0
+
+    # Fill Set 0
+    is_hit, _ = tracker.access(addr_A) # Miss, A in cache
+    assert not is_hit
+    is_hit, _ = tracker.access(addr_B) # Miss, B in cache
+    assert not is_hit
+    assert tracker.misses == 2
+
+    # Access A again (makes A most recently used)
+    is_hit, _ = tracker.access(addr_A) # Hit
+    assert is_hit
+    assert tracker.hits == 1
+
+    # Access C (should evict B, as B is LRU in Set 0)
+    is_hit, _ = tracker.access(addr_C) # Miss, C in cache, B evicted
+    assert not is_hit
+    assert tracker.misses == 3
+
+    # Access B (should be a miss now, as it was evicted)
+    is_hit, _ = tracker.access(addr_B) # Miss
+    assert not is_hit
+    assert tracker.misses == 4
+
+    # Access A again (should be a miss, as A was evicted by B)
+    is_hit, _ = tracker.access(addr_A) # Miss
+    assert not is_hit
+    assert tracker.misses == 5
+
+    # Access C (should be a miss, as C was evicted by A)
+    is_hit, _ = tracker.access(addr_C) # Miss
+    assert not is_hit
+    assert tracker.misses == 6
+
+    assert tracker.get_stats()['hits'] == 1
+    assert tracker.get_stats()['misses'] == 6
+    assert abs(tracker.get_stats()['hit_rate'] - (1/7)) < 0.001
+
+def test_l2_cache_stats(l2_config: SimConfig):
+    """Tests statistics collection."""
+    tracker = L2CacheTracker(l2_config)
+
+    # No accesses
+    stats = tracker.get_stats()
+    assert stats['hits'] == 0
+    assert stats['misses'] == 0
+    assert stats['hit_rate'] == 0
+    assert stats['miss_rate'] == 0
+
+    # Some accesses
+    tracker.access(0x1000) # Miss
+    tracker.access(0x1000) # Hit
+    tracker.access(0x2000) # Miss
+    tracker.access(0x3000) # Miss
+
+    stats = tracker.get_stats()
+    assert stats['hits'] == 1
+    assert stats['misses'] == 3
+    assert abs(stats['hit_rate'] - 0.25) < 0.001
+    assert abs(stats['miss_rate'] - 0.75) < 0.001

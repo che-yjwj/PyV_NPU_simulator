@@ -126,4 +126,13 @@ def generate_report(schedule: List[ScheduleItem], config: SimConfig, stats: Dict
         print("\nEngine Utilization:")
         for key, value in report_data['engine_utilization'].items():
             print(f"  {key}: {value}")
+
+    if report_data.get('l2_cache_stats'):
+        print("\nL2 Cache Stats:")
+        for key, value in report_data['l2_cache_stats'].items():
+            if isinstance(value, float):
+                print(f"  {key:<10}: {value:.2%}" if "rate" in key else f"  {key:<10}: {value:.2f}")
+            else:
+                print(f"  {key:<10}: {value}")
+
     print(f"\nTotal Cycles: {report_data['total_cycles']}")

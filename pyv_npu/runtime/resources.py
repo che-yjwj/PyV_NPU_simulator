@@ -209,3 +209,85 @@ class IssueQueueTracker:
     def commit_issue(self, issue_cycle: int):
         """Commits the command issue, updating the next available time."""
         self.next_issue_cycle = issue_cycle + self.issue_rate
+
+class L2CacheTracker:
+    """Models an L2 cache with set-associativity and LRU replacement."""
+    def __init__(self, config: SimConfig):
+        self.hits = 0
+        self.misses = 0
+
+        if not config.l2_cache_enabled:
+            self.enabled = False
+            return
+
+        self.enabled = True
+        self.size_bytes = config.l2_cache_size_kib * 1024
+        self.line_size = config.l2_cache_line_size_bytes
+        self.associativity = config.l2_cache_associativity
+        self.hit_latency = config.l2_cache_hit_latency_cycles
+        self.miss_latency = config.l2_cache_miss_latency_cycles
+        
+        if self.size_bytes == 0 or self.line_size == 0 or self.associativity == 0:
+            raise ValueError("L2 cache parameters must be non-zero.")
+
+        self.num_lines = int(self.size_bytes // self.line_size)
+        self.num_sets = int(self.num_lines // self.associativity)
+        
+        if self.num_sets == 0:
+            raise ValueError("L2 cache size is too small for the given associativity.")
+
+        # Cache storage: list of deques, where each deque is a set
+        # Each element in the deque is the tag
+        self.sets: List[deque] = [deque(maxlen=self.associativity) for _ in range(self.num_sets)]
+
+        # Address bit calculation
+        # Address bit calculation
+        import math
+        self.offset_bits = int(math.log2(self.line_size))
+        self.index_bits = int(math.log2(self.num_sets))
+        self.index_mask = (1 << self.index_bits) - 1
+
+        self.hits = 0
+        self.misses = 0
+
+    def _get_address_parts(self, address: int) -> Tuple[int, int]:
+        """Extracts tag and index from a memory address."""
+        index = (address >> self.offset_bits) & self.index_mask
+        tag = address >> (self.offset_bits + self.index_bits)
+        return tag, index
+
+    def access(self, address: int) -> Tuple[bool, int]:
+        """
+        Accesses the cache with a given address.
+        Returns a tuple: (is_hit, latency_in_cycles).
+        """
+        if not self.enabled:
+            return False, 0 # No latency contribution if disabled
+
+        tag, index = self._get_address_parts(address)
+        target_set = self.sets[index]
+
+        # Check for hit
+        if tag in target_set:
+            self.hits += 1
+            # Move the accessed tag to the end (most recently used)
+            target_set.remove(tag)
+            target_set.append(tag)
+            return True, self.hit_latency
+
+        # Handle miss
+        self.misses += 1
+        # The deque will automatically handle eviction of the least recently used
+        # item if it's full when we append.
+        target_set.append(tag)
+        return False, self.miss_latency
+
+    def get_stats(self) -> Dict[str, float]:
+        """Returns a dictionary of cache statistics."""
+        total_accesses = self.hits + self.misses
+        if total_accesses == 0:
+            return {"hit_rate": 0, "miss_rate": 0, "hits": 0, "misses": 0}
+        
+        hit_rate = self.hits / total_accesses
+        miss_rate = self.misses / total_accesses
+        return {"hit_rate": hit_rate, "miss_rate": miss_rate, "hits": self.hits, "misses": self.misses}

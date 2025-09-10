@@ -5,7 +5,7 @@ import heapq
 from ..config import SimConfig
 from ..isa.npu_ir import Program, NPUOp, Tensor, DTYPE_MAP
 from ..isa.opcode import Opcode
-from .resources import BankTracker, DramBankTracker, IssueQueueTracker, L0SPMTracker, IOBufferTracker
+from .resources import BankTracker, DramBankTracker, IssueQueueTracker, L0SPMTracker, IOBufferTracker, L2CacheTracker
 from .bus import SystemBusTracker
 from .te import calculate_systolic_array_cycles
 
@@ -51,6 +51,7 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
     issue_queue = IssueQueueTracker(config)
     l0_spm_trackers = [L0SPMTracker(config) for _ in range(config.tc)]
     io_buffer = IOBufferTracker(config, name="io_buffer")
+    l2_cache = L2CacheTracker(config)
     
     # --- Engine Free Time Pools ---
     tc_free_time = [0] * config.tc
@@ -100,12 +101,25 @@ def event_driven_schedule(p: Program, config: SimConfig) -> Tuple[List[ScheduleI
                 time=time, config=config, schedule=schedule, event_queue=event_queue,
                 tensor_ready_time=tensor_ready_time, completed_tickets=completed_tickets,
                 engine_pools={'TC': tc_free_time, 'VC': vc_free_time, 'DMA': dma_free_time, 'CPU': cpu_free_time},
-                resource_trackers={'dram_banks': dram_bank_tracker, 'spm_banks': spm_banks, 'issue_queue': issue_queue, 'l0_spms': l0_spm_trackers, 'io_buffer': io_buffer, 'system_bus': system_bus},
+                resource_trackers={'dram_banks': dram_bank_tracker, 'spm_banks': spm_banks, 'issue_queue': issue_queue, 'l0_spms': l0_spm_trackers, 'io_buffer': io_buffer, 'system_bus': system_bus, 'l2_cache': l2_cache},
                 op_pending_time=op_pending_time
             )
 
     schedule.sort(key=lambda x: x.start_cycle)
+    
+    # Calculate total_cycles
+    total_cycles = max(item.end_cycle for item in schedule) if schedule else 0
+
     stats = {"dram_collisions": dram_bank_tracker.collisions}
+    
+    # Add total_cycles to stats
+    stats["total_cycles"] = total_cycles
+
+    # Add L2 cache stats if enabled
+    if l2_cache.enabled:
+        l2_stats = l2_cache.get_stats()
+        stats["l2_cache_stats"] = l2_stats
+
     return schedule, stats
 
 
@@ -250,7 +264,7 @@ def _calculate_control_op_timing(op: NPUOp, start_cycle: int, config: SimConfig,
 
 
 def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resources: Dict[str, Any], **kwargs) -> Tuple[int, int, str, Dict[str, int], BookingInfo]:
-    dram_banks, io_buffer, system_bus = resources['dram_banks'], resources['io_buffer'], resources['system_bus']
+    dram_banks, io_buffer, system_bus, l2_cache = resources['dram_banks'], resources['io_buffer'], resources['system_bus'], resources['l2_cache']
     booking_info = BookingInfo()
     breakdown = {}
 
@@ -259,23 +273,62 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
             return start_cycle, start_cycle + 1, "NONE", breakdown, booking_info
         tensor = op.outputs[0]
         num_bytes = tensor.num_elements * DTYPE_MAP.get(tensor.dtype, 1)
+        address = op.inputs[0].address
+
+        l2_latency = 0
+        is_hit = False
+        l2_cache_enabled_for_op = False
+
+        if address is not None:
+            l2_cache_enabled_for_op = l2_cache.enabled
+            if l2_cache_enabled_for_op:
+                is_hit, l2_latency = l2_cache.access(address)
+                breakdown['l2_access'] = l2_latency # Add L2 access latency to breakdown
+
+        if l2_cache_enabled_for_op and is_hit:
+            # L2 Hit: Data comes from L2 cache. No DRAM or System Bus access needed.
+            # The operation starts at start_cycle and takes l2_latency.
+            actual_start = start_cycle
+            total_duration = l2_latency
+            stall_reason = "NONE"
+            
+            # Still need to push to IO buffer
+            if not io_buffer.can_push(num_bytes):
+                return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_FULL", breakdown, booking_info
+            booking_info.io_buffer_pushes.append({'num_bytes': num_bytes, 'tensor_name': tensor.name})
+            
+            return actual_start, actual_start + total_duration, stall_reason, breakdown, booking_info
+        else:
+            # L2 Miss or L2 Disabled: Incur L2 miss latency (if enabled), then proceed to DRAM and System Bus.
+            dram_bus_start_cycle = start_cycle + l2_latency
+
+        # Common path for L2 Miss or L2 Disabled: Access DRAM and System Bus
         if not io_buffer.can_push(num_bytes):
             return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_FULL", breakdown, booking_info
-        
-        # Probe DRAM banks first
-        dram_start, dram_duration, dram_stall, ch_id, b_id = dram_banks.probe_transfer(start_cycle, op.inputs[0].address, num_bytes)
+
+        # Probe DRAM banks
+        dram_start, dram_duration, dram_stall, ch_id, b_id = dram_banks.probe_transfer(dram_bus_start_cycle, address, num_bytes)
         
         # Probe system bus, starting from when the DRAM is available
         bus_start, bus_duration, bus_stall = system_bus.probe_transfer(dram_start, num_bytes)
 
-        actual_start = dram_start
-        total_duration = (bus_start - dram_start) + bus_duration
-        stall_reason = bus_stall if bus_stall != "NONE" else dram_stall
+        actual_start = start_cycle # The operation is considered to start at the original start_cycle
+        # Total duration includes L2 miss latency (if applicable) + DRAM + Bus
+        total_duration = (bus_start + bus_duration) - actual_start
+        
+        stall_reason = "NONE"
+        if dram_start > dram_bus_start_cycle:
+            stall_reason = dram_stall
+        elif bus_start > dram_start:
+            stall_reason = bus_stall
+
+        breakdown['dram_access'] = dram_duration
+        breakdown['bus_access'] = bus_duration
 
         booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': dram_start, 'duration': dram_duration})
         booking_info.system_bus_transfers.append({'start_cycle': bus_start, 'duration': bus_duration, 'num_bytes': num_bytes})
         booking_info.io_buffer_pushes.append({'num_bytes': num_bytes, 'tensor_name': tensor.name})
-        # TODO: Add bus booking info
+        
         return actual_start, actual_start + total_duration, stall_reason, breakdown, booking_info
 
     if op.opcode == Opcode.STORE:
@@ -286,19 +339,47 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
             return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_EMPTY", breakdown, booking_info
         
         num_bytes = next_item[0]
+        address = op.outputs[0].address
+
+        l2_latency = 0
+        is_hit = False # Not a real hit, just bypassing L2 if address is None
+        l2_cache_enabled_for_op = False
+
+        if address is not None:
+            l2_cache_enabled_for_op = l2_cache.enabled
+            if l2_cache_enabled_for_op:
+                is_hit, l2_latency = l2_cache.access(address)
+                breakdown['l2_access'] = l2_latency # Add L2 access latency to breakdown
+
+        # For STORE, we always proceed to DRAM (write-through policy for simplicity)
+        # The L2 latency is incurred first, then DRAM/Bus access starts.
+        dram_bus_start_cycle = start_cycle + l2_latency
+
+        # Pop from IO buffer regardless of L2 hit/miss, as data is consumed
         booking_info.io_buffer_pops.append({})
 
-        # Probe DRAM banks first
-        dram_start, dram_duration, dram_stall, ch_id, b_id = dram_banks.probe_transfer(start_cycle, op.outputs[0].address, num_bytes)
+        # Probe DRAM banks
+        dram_start, dram_duration, dram_stall, ch_id, b_id = dram_banks.probe_transfer(dram_bus_start_cycle, address, num_bytes)
 
-        actual_start = dram_start
-        total_duration = (bus_start - dram_start) + bus_duration
-        stall_reason = bus_stall if bus_stall != "NONE" else dram_stall
+        # Probe system bus, starting from when the DRAM is available
+        bus_start, bus_duration, bus_stall = system_bus.probe_transfer(dram_start, num_bytes)
+
+        actual_start = start_cycle # The operation is considered to start at the original start_cycle
+        # Total duration includes L2 latency (if applicable) + DRAM + Bus
+        total_duration = (bus_start + bus_duration) - actual_start
+        
+        stall_reason = "NONE"
+        if dram_start > dram_bus_start_cycle:
+            stall_reason = dram_stall
+        elif bus_start > dram_start:
+            stall_reason = bus_stall
+
+        breakdown['dram_access'] = dram_duration
+        breakdown['bus_access'] = bus_duration
 
         booking_info.dram_transfers.append({'channel_id': ch_id, 'bank_id': b_id, 'start_cycle': dram_start, 'duration': dram_duration})
         booking_info.system_bus_transfers.append({'start_cycle': bus_start, 'duration': bus_duration, 'num_bytes': num_bytes})
-        booking_info.io_buffer_pops.append({})
-        # TODO: Add bus booking info
+        
         return actual_start, actual_start + total_duration, stall_reason, breakdown, booking_info
 
 
