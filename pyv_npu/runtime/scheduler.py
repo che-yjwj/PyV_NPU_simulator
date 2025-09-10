@@ -285,6 +285,10 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
                 is_hit, l2_latency = l2_cache.access(address)
                 breakdown['l2_access'] = l2_latency # Add L2 access latency to breakdown
 
+        # Check IO buffer capacity once at the beginning for LOAD
+        if not io_buffer.can_push(num_bytes):
+            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_FULL", breakdown, booking_info
+
         if l2_cache_enabled_for_op and is_hit:
             # L2 Hit: Data comes from L2 cache. No DRAM or System Bus access needed.
             # The operation starts at start_cycle and takes l2_latency.
@@ -292,9 +296,6 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
             total_duration = l2_latency
             stall_reason = "NONE"
             
-            # Still need to push to IO buffer
-            if not io_buffer.can_push(num_bytes):
-                return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_FULL", breakdown, booking_info
             booking_info.io_buffer_pushes.append({'num_bytes': num_bytes, 'tensor_name': tensor.name})
             
             return actual_start, actual_start + total_duration, stall_reason, breakdown, booking_info
@@ -303,8 +304,7 @@ def _calculate_dma_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, res
             dram_bus_start_cycle = start_cycle + l2_latency
 
         # Common path for L2 Miss or L2 Disabled: Access DRAM and System Bus
-        if not io_buffer.can_push(num_bytes):
-            return start_cycle + 1, start_cycle + 2, "RESOURCE_IO_BUFFER_FULL", breakdown, booking_info
+        # io_buffer.can_push(num_bytes) is already checked above
 
         # Probe DRAM banks
         dram_start, dram_duration, dram_stall, ch_id, b_id = dram_banks.probe_transfer(dram_bus_start_cycle, address, num_bytes)

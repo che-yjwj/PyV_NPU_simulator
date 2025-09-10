@@ -1,6 +1,7 @@
 from __future__ import annotations
+import math # Moved import to top
 from ..config import SimConfig
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any # Added Any
 from collections import deque
 from ..isa.npu_ir import Tensor, DTYPE_MAP
 from .memory import DramAddressMapper
@@ -241,8 +242,10 @@ class L2CacheTracker:
         self.sets: List[deque] = [deque(maxlen=self.associativity) for _ in range(self.num_sets)]
 
         # Address bit calculation
-        # Address bit calculation
-        import math
+        # Ensure line_size and num_sets are positive for log2
+        if self.line_size <= 0 or self.num_sets <= 0:
+            raise ValueError("line_size and num_sets must be positive for log2 calculation.")
+
         self.offset_bits = int(math.log2(self.line_size))
         self.index_bits = int(math.log2(self.num_sets))
         self.index_mask = (1 << self.index_bits) - 1
@@ -282,7 +285,7 @@ class L2CacheTracker:
         target_set.append(tag)
         return False, self.miss_latency
 
-    def get_stats(self) -> Dict[str, float]:
+    def get_stats(self) -> Dict[str, Any]:
         """Returns a dictionary of cache statistics."""
         total_accesses = self.hits + self.misses
         if total_accesses == 0:

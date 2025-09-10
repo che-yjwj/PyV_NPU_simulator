@@ -51,7 +51,7 @@ def test_l2_cache_impact_on_performance():
     program_no_locality = create_memory_access_program(num_accesses, base_address=1, stride=123, tensor_size=tensor_size)
 
     # Run with L2 Cache Enabled
-    config_l2_on_no_loc = SimConfig(sim_level='CA_HYBRID', l2_cache_enabled=True, l2_cache_size_kib=0.125, l2_cache_line_size_bytes=64, l2_cache_associativity=2, l2_cache_hit_latency_cycles=5, l2_cache_miss_latency_cycles=100)
+    config_l2_on_no_loc = SimConfig(sim_level='CA_HYBRID', l2_cache_enabled=True, l2_cache_size_kib=1, l2_cache_line_size_bytes=64, l2_cache_associativity=2, l2_cache_hit_latency_cycles=5, l2_cache_miss_latency_cycles=100)
     schedule_l2_on_no_loc, stats_l2_on_no_loc = run_sim(program_no_locality, config_l2_on_no_loc)
     total_cycles_l2_on_no_loc = stats_l2_on_no_loc['total_cycles']
     l2_stats_l2_on_no_loc = stats_l2_on_no_loc.get('l2_cache_stats', {})
