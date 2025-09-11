@@ -490,7 +490,7 @@ def calculate_op_timing(op: NPUOp, start_cycle: int, config: SimConfig, resource
         Opcode.MUL: _calculate_vc_op_timing,
         Opcode.LAYERNORM: _calculate_vc_op_timing,
         Opcode.ERF: _calculate_vc_op_timing,
-        Opcode.MATMULADDGELU: _calculate_vc_op_timing,
+        Opcode.MATMULADDGELU: _calculate_tc_op_timing,
     }
 
     handler = opcode_to_handler.get(op.opcode)
@@ -507,7 +507,9 @@ def get_engine_for_op(op: NPUOp, mode: str = 'loose') -> str:
         return "CPU"
     elif op.opcode in (Opcode.MATMUL, Opcode.CONV):
         return "TC"
-    elif op.opcode in (Opcode.GELU, Opcode.SOFTMAX, Opcode.ADD, Opcode.MUL, Opcode.LAYERNORM, Opcode.ERF, Opcode.MATMULADDGELU):
+    elif op.opcode in (Opcode.MATMUL, Opcode.CONV, Opcode.MATMULADDGELU):
+        return "TC"
+    elif op.opcode in (Opcode.GELU, Opcode.SOFTMAX, Opcode.ADD, Opcode.MUL, Opcode.LAYERNORM, Opcode.ERF):
         return "VC"
     else:
         return "DMA"

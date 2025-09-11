@@ -1,5 +1,6 @@
 from __future__ import annotations
 from ...ir.model_ir import Graph, Node
+import logging
 from typing import List, Dict
 
 def apply_fusion_pass(g: Graph) -> Graph:
@@ -32,7 +33,7 @@ def apply_fusion_pass(g: Graph) -> Graph:
             continue
         
         add_node = node_map.get(consumers[0])
-        if not add_node or add_node.op_type != 'Add' or len(add_node.outputs) != 1:
+        if not add_node or add_node.op_type != 'Add' or len(add_node.outputs) != 1 or len(add_node.inputs) != 2:
             continue
 
         # 2. Check Add's consumer
@@ -46,7 +47,7 @@ def apply_fusion_pass(g: Graph) -> Graph:
             continue
 
         # --- Fusion pattern found! --- 
-        print(f"Fusing nodes: {node.name}, {add_node.name}, {gelu_node.name}")
+        logging.info(f"Fusing nodes: {node.name}, {add_node.name}, {gelu_node.name}")
 
         # Identify the bias tensor for the Add operation
         bias_tensor_name = next((t for t in add_node.inputs if t != matmul_out_tensor), None)

@@ -1,4 +1,5 @@
 import pytest
+import copy
 from pyv_npu.ir.onnx_importer import load_onnx_as_model_ir
 from pyv_npu.compiler.passes.fusion import apply_fusion_pass
 from pyv_npu.runtime.simulator import run as run_sim
@@ -36,7 +37,7 @@ def test_fusion_pass_improves_performance(fusion_test_model_graph):
     allocator = Allocator(config.dram_base_address, config.dram_page_size)
 
     # --- Run without fusion ---
-    graph_no_fusion = fusion_test_model_graph
+    graph_no_fusion = copy.deepcopy(fusion_test_model_graph)
     prog_no_fusion = map_model_ir_to_npu_program(graph_no_fusion, mode='loose')
     allocator.allocate(prog_no_fusion)
     schedule_no_fusion, stats_no_fusion = run_sim(prog_no_fusion, config)
