@@ -8,10 +8,13 @@ from ..isa.opcode import Opcode
 
 def _add_op_args(n: Node, npu_op: NPUOp):
     """Adds necessary args for scheduling from the node's tensors."""
-    if npu_op.opcode in (Opcode.MATMUL, Opcode.CONV):
+    if npu_op.opcode in (Opcode.MATMUL, Opcode.CONV, Opcode.MATMULADDGELU):
         if len(npu_op.inputs) >= 2:
-            m, k = npu_op.inputs[0].shape
-            k, n = npu_op.inputs[1].shape
+            shape_A = npu_op.inputs[0].shape
+            shape_B = npu_op.inputs[1].shape
+            m = shape_A[-2]
+            k = shape_A[-1]
+            n = shape_B[-1]
             npu_op.args['tile_m'] = m
             npu_op.args['tile_n'] = n
             npu_op.args['tile_k'] = k

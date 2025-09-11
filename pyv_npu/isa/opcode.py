@@ -22,6 +22,9 @@ class Opcode(str, Enum):
     LAYERNORM = "LayerNorm"
     ERF = "Erf"
 
+    # Fused Operations
+    MATMULADDGELU = "MatMulAddGelu"
+
     # RISC-V Custom ISA & Control
     ENQCMD_T = "ENQCMD_T"
     TWAIT = "TWAIT"
